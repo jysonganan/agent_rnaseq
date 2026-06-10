@@ -53,6 +53,8 @@ Returns service liveness.
 #### `GET /genomes`
 List all registered reference genomes.
 
+**Query params**: `limit` (default 20), `offset` (default 0)
+
 **Response 200**
 ```json
 {
@@ -97,12 +99,19 @@ Register a new reference genome.
 ### Projects
 
 #### `GET /projects`
+**Query params**: `limit` (default 20), `offset` (default 0)
+
 **Response 200**
 ```json
 {
+  "total": 10,
   "projects": [{ "id": "uuid", "name": "...", "owner": "...", "created_at": "..." }]
 }
 ```
+
+#### `GET /projects/{project_id}`
+**Response 200** — full project object with `id`, `name`, `description`, `owner`, `created_at`, `updated_at`.
+**Response 404** — RFC 9457 error if project not found.
 
 #### `POST /projects`
 **Request body**
@@ -142,6 +151,10 @@ Register one or more samples.
 
 #### `GET /projects/{project_id}/samples`
 **Response 200** — array of sample objects.
+
+#### `GET /samples/{sample_id}`
+**Response 200** — single sample object.
+**Response 404** — RFC 9457 error if not found.
 
 ---
 
@@ -360,6 +373,106 @@ Get pathway enrichment results.
     }
   ]
 }
+```
+
+---
+
+### Splicing Results
+
+#### `GET /runs/{run_id}/splicing`
+Get differential splicing results.
+
+**Query params**: `contrast` (required), `event_type` (optional: SE/A5SS/A3SS/MXE/RI), `fdr_cutoff` (default 0.05), `limit` (default 500)
+
+**Response 200**
+```json
+{
+  "run_id": "uuid",
+  "contrast": "treatment_vs_control",
+  "total_events": 312,
+  "results": [
+    {
+      "gene_id": "ENSG00000...",
+      "gene_name": "PTBP1",
+      "event_type": "SE",
+      "inclusion_level_diff": -0.35,
+      "pvalue": 1.1e-5,
+      "fdr": 0.003
+    }
+  ]
+}
+```
+
+---
+
+### Variant Results
+
+#### `GET /runs/{run_id}/variants`
+Get variant calls for a run.
+
+**Query params**: `sample_id` (optional), `chrom` (optional), `filter` (optional: PASS/all), `limit` (default 500), `offset` (default 0)
+
+**Response 200**
+```json
+{
+  "run_id": "uuid",
+  "total": 5421,
+  "variants": [
+    {
+      "id": "uuid",
+      "sample_id": "uuid",
+      "chrom": "chr17",
+      "pos": 7674220,
+      "ref": "C",
+      "alt": "T",
+      "qual": 312.5,
+      "filter": "PASS"
+    }
+  ]
+}
+```
+
+---
+
+### API Key Management
+
+#### `POST /api-keys`
+Issue a new API key. Admin-only endpoint (requires a bootstrap key or admin scope).
+
+**Request body**
+```json
+{ "name": "ci-pipeline-key", "expires_at": "2027-01-01T00:00:00Z" }
+```
+
+**Response 201**
+```json
+{
+  "id": "uuid",
+  "name": "ci-pipeline-key",
+  "key": "<raw-key-shown-once>",
+  "expires_at": "2027-01-01T00:00:00Z"
+}
+```
+The raw key is returned only at creation time and never again.
+
+#### `GET /api-keys`
+List all active (non-revoked) API keys. Returns metadata only — never the raw key or hash.
+
+**Response 200**
+```json
+{
+  "keys": [
+    { "id": "uuid", "name": "ci-pipeline-key", "created_at": "...", "expires_at": "..." }
+  ]
+}
+```
+
+#### `DELETE /api-keys/{key_id}`
+Revoke an API key immediately.
+
+**Response 200**
+```json
+{ "id": "uuid", "revoked_at": "2026-06-10T12:00:00Z" }
 ```
 
 ---

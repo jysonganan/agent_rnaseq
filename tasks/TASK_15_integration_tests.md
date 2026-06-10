@@ -17,11 +17,14 @@ tests/integration/
   __init__.py
   conftest.py          # Docker Compose fixtures, in-memory DB, tool mocks
   test_bulk_rnaseq_pipeline.py   # Full bulk RNA-seq run: QC → alignment → quant → DE → GSEA
-  test_scrna_pipeline.py         # scRNA-seq run: CellRanger → Scanpy
-  test_variant_pipeline.py       # Alignment → GATK → VCF output
+  test_splicing_pipeline.py      # Alignment → rMATS → SplicingResult DB rows
+  test_scrna_pipeline.py         # scRNA-seq run: CellRanger → Scanpy → scRNAClusterResult DB rows
+  test_variant_pipeline.py       # Alignment → GATK → VCF output + VariantCall DB rows
   test_api_run_lifecycle.py      # POST /runs, poll status, GET results
   test_agent_routing.py          # Routing correctness for various stage combinations
   test_aws_pipeline.py           # S3 input/output with moto mocks
+  test_stage_dependency.py       # OrchestratorAgent rejects invalid stage combinations
+  test_mock_mode.py              # dry_run=True: all stages complete, no subprocess spawned
   fixtures/
     synthetic_R1.fastq.gz        # Tiny synthetic FASTQ (100 reads)
     synthetic_R2.fastq.gz
@@ -42,6 +45,11 @@ tests/integration/
 - [ ] `test_agent_routing.py` verifies stages not in `run_config.stages` are skipped.
 - [ ] `test_aws_pipeline.py` verifies S3 upload called for each artifact (moto).
 - [ ] `test_scrna_pipeline.py` verifies `CellRangerCountOutput.summary_stats` stored in DB.
+- [ ] `test_scrna_pipeline.py` verifies `scRNAClusterResult` rows written to DB.
+- [ ] `test_splicing_pipeline.py` verifies `SplicingResult` rows written to DB.
+- [ ] `test_stage_dependency.py` verifies `stages=["de"]` without `quantification` is rejected before run creation.
+- [ ] `test_mock_mode.py` verifies `dry_run=True` run completes without any real subprocess calls.
+- [ ] Every completed `PipelineStage` in all integration tests has a non-null `tool_version`.
 - [ ] All integration tests pass in under 60 seconds (mocked tools, no real binaries).
 - [ ] Zero real subprocess calls to bioinformatics tools (all mocked).
 

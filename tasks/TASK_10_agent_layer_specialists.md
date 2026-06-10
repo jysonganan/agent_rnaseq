@@ -56,7 +56,10 @@ tests/agents/specialists/
 - [ ] `DEAgent` bulk-inserts `DEGResult` rows from `DESeq2Output`; no LLM-generated values in those rows.
 - [ ] `GSEAAgent` bulk-inserts `GSEAResult` rows from `ReactomeGSEAOutput`.
 - [ ] `QCAgent` writes `QCMetric` rows from parsed FastQC/RSeQC output.
-- [ ] `QuantificationAgent` selects tool (`htseq`, `salmon`, or `rsem`) based on `RunConfig.aligner`.
+- [ ] `QuantificationAgent` selects tool (`htseq`, `salmon`, or `rsem`) based on `RunConfig.quantification_method`.
+- [ ] `SplicingAgent` bulk-inserts `SplicingResult` rows from `RMATSOutput`; no LLM-generated values.
+- [ ] `scRNAAgent` writes `scRNAClusterResult` rows from `ScanpyOutput.cluster_summary`.
+- [ ] All agents record `tool_version` in `PipelineStage.tool_version` (non-null after completion).
 - [ ] LLM summary calls are mocked in all unit tests.
 
 ## Definition of Done

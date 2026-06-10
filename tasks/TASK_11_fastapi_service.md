@@ -4,10 +4,12 @@
 Implement the FastAPI application with all endpoints defined in `docs/specs/api_contracts.md`, WebSocket log streaming, and API key authentication middleware.
 
 ## Requirements
-- All REST endpoints from `api_contracts.md` implemented.
-- WebSocket endpoint for run log streaming.
-- API key auth middleware (Bearer token, keys stored in DB or env var list).
-- Background task runner: `POST /runs` queues the pipeline in a `BackgroundTasks` worker.
+- All REST endpoints from `api_contracts.md` implemented, including `/splicing`, `/variants`, and `/api-keys`.
+- WebSocket endpoint for run log streaming (Redis pub/sub backend per `docs/architecture.md` Section 5).
+- API key auth middleware: keys stored in `APIKey` DB table, looked up by SHA-256 hash of Bearer token.
+- Pipeline runner: `POST /runs` enqueues the pipeline via ARQ (async Redis task queue). **Do NOT use FastAPI `BackgroundTasks`** — runs outlive the request lifecycle and must survive process restarts.
+- `GET /projects/{project_id}` and `GET /samples/{sample_id}` single-resource endpoints.
+- Pagination (`limit`/`offset`) on `GET /genomes` and `GET /projects`.
 - Pydantic request/response schemas derived from `docs/specs/data_models.md`.
 - RFC 9457 error responses.
 - OpenAPI docs auto-generated (`/docs`).
@@ -32,7 +34,7 @@ src/api/
     logs.py             # WebSocket run log streaming
   background/
     __init__.py
-    runner.py           # BackgroundTasks pipeline runner, connects to OrchestratorAgent
+    runner.py           # ARQ worker task: dequeues run_id, invokes OrchestratorAgent
   errors.py            # RFC 9457 exception handlers
 tests/api/
   __init__.py
@@ -55,6 +57,12 @@ tests/api/
 - [ ] `POST /runs` with invalid `alignment_mode` value returns 422.
 - [ ] `GET /runs/{run_id}/de?contrast=X` returns 200 with paginated DE results.
 - [ ] WebSocket `/ws/runs/{run_id}/logs` receives at least one message in integration test.
+- [ ] `POST /runs` enqueues task via ARQ; run `status` is `pending` immediately; transitions to `running` when worker picks it up.
+- [ ] API process restart does not lose pending runs (ARQ queue persists in Redis).
+- [ ] `GET /runs/{run_id}/splicing` returns 200 with splicing results for completed run.
+- [ ] `GET /runs/{run_id}/variants` returns 200 with variant results for completed run.
+- [ ] `POST /api-keys` returns raw key once; subsequent `GET /api-keys` omits raw key.
+- [ ] `DELETE /api-keys/{id}` sets `revoked_at`; subsequent requests with that key return 401.
 - [ ] `POST /runs` rate limit: 11th request in 1 minute returns 429.
 - [ ] OpenAPI schema at `/docs` loads without error.
 

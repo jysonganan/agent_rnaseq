@@ -78,7 +78,7 @@ One end-to-end pipeline execution.
 | `started_at` | TIMESTAMP | | |
 | `completed_at` | TIMESTAMP | | |
 | `created_at` | TIMESTAMP | NOT NULL | |
-| `created_by` | VARCHAR(64) | | |
+| `created_by` | UUID | FK → APIKey, NOT NULL | API key that created this run |
 
 ---
 
@@ -108,6 +108,7 @@ Individual stage execution record within a run.
 | `output_summary` | JSONB | | Validated tool output summary |
 | `executor` | ENUM | | `local`, `nextflow`, `aws_batch` |
 | `batch_job_id` | VARCHAR(128) | | AWS Batch job ID if applicable |
+| `exit_code` | INTEGER | | Process exit code; 0 = success |
 | `log_path` | TEXT | | |
 | `started_at` | TIMESTAMP | | |
 | `completed_at` | TIMESTAMP | | |
@@ -183,7 +184,25 @@ Pathway enrichment results (Reactome).
 
 ---
 
-### 11. `VariantCall`
+### 11. `SplicingResult`
+Differential splicing events from rMATS.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `stage_id` | UUID | FK → PipelineStage | |
+| `run_id` | UUID | FK → AnalysisRun | Denormalized for fast queries |
+| `contrast` | VARCHAR(128) | NOT NULL | e.g. `treatment_vs_control` |
+| `event_type` | ENUM | NOT NULL | `SE`, `A5SS`, `A3SS`, `MXE`, `RI` |
+| `gene_id` | VARCHAR(64) | NOT NULL | Ensembl gene ID |
+| `gene_name` | VARCHAR(64) | | |
+| `inclusion_level_diff` | FLOAT | | IncLevelDifference from rMATS |
+| `pvalue` | FLOAT | | |
+| `fdr` | FLOAT | | FDR-adjusted p-value |
+
+---
+
+### 13. `VariantCall`
 Variant records from GATK.
 
 | Column | Type | Constraints | Description |
@@ -198,6 +217,37 @@ Variant records from GATK.
 | `qual` | FLOAT | | |
 | `filter` | VARCHAR(64) | | PASS or filter label |
 | `info` | JSONB | | Parsed INFO fields |
+
+---
+
+### 14. `APIKey`
+API key credentials for authentication.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `key_hash` | VARCHAR(64) | UNIQUE, NOT NULL | SHA-256 of the raw key; raw key never stored |
+| `name` | VARCHAR(128) | NOT NULL | Human label for the key |
+| `created_by` | VARCHAR(64) | NOT NULL | Admin user who issued the key |
+| `created_at` | TIMESTAMP | NOT NULL | |
+| `expires_at` | TIMESTAMP | | Null = no expiry |
+| `revoked_at` | TIMESTAMP | | Non-null = revoked |
+
+---
+
+### 15. `scRNAClusterResult`
+Cluster-level summary from Scanpy/Seurat analysis.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `stage_id` | UUID | FK → PipelineStage | |
+| `run_id` | UUID | FK → AnalysisRun | |
+| `sample_id` | UUID | FK → Sample | |
+| `n_clusters` | INTEGER | NOT NULL | |
+| `cluster_id` | INTEGER | NOT NULL | Cluster label |
+| `n_cells` | INTEGER | NOT NULL | Cells in cluster |
+| `top_marker_genes` | TEXT | | Comma-separated gene list |
 
 ---
 
@@ -226,14 +276,16 @@ SampleType:    bulk_rnaseq | scrna_seq
 RunStatus:     pending | running | completed | failed | cancelled
 PipelineType:  bulk_rnaseq | scrna_seq
 AlignmentMode: genome | transcriptome | both
-Aligner:       star | salmon | rsem
+QuantificationMethod: star_htseq | salmon | rsem
+# Note: "star_htseq" = STAR alignment + HTSeq counting; salmon/rsem = direct quasi-mapping or RSEM.
+# The Aligner is always STAR for bulk RNA-seq. QuantificationMethod determines the count tool.
 StageName:     qc | alignment | quantification | variant_calling |
                splicing | differential_expression | gsea |
-               visualization | report
+               scrna_seq | visualization | report
 StageStatus:   pending | running | completed | failed | skipped
 ArtifactType:  fastqc_report | bam | bai | counts_matrix | vcf |
                de_table | gsea_result | splicing_table | ucsc_track |
-               html_report | streamlit_data
+               html_report | streamlit_data | scrna_h5ad | scrna_umap | marker_genes
 Executor:      local | nextflow | aws_batch
 PassFail:      pass | warn | fail
 ```

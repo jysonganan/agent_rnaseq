@@ -522,6 +522,53 @@ class ToolTimeoutError(Exception):
     timeout_seconds: int
 ```
 
+## Stage Dependencies
+
+The Orchestrator must reject any `RunConfig` whose `stages` list violates these dependencies:
+
+| Stage | Requires |
+|---|---|
+| `alignment` | (warns if `qc` absent, but not blocked) |
+| `quantification` | `alignment` |
+| `differential_expression` | `quantification` |
+| `gsea` | `differential_expression` |
+| `splicing` | `alignment` |
+| `variant_calling` | `alignment` |
+| `visualization` | at least one of: `differential_expression`, `gsea`, `qc` |
+| `report` | at least one upstream stage complete |
+| `scrna_seq` | none (parallel to bulk pipeline) |
+
+Validation must occur in `OrchestratorAgent` before dispatching to LangGraph.
+
+---
+
+## Mock Tool Registry
+
+When `RunConfig.dry_run = True` (dev/test mode only; not settable by LLM; must be set in API request body), all tool calls return pre-defined fixture outputs instead of executing real processes.
+
+Fixture files live in `tests/fixtures/mock_tool_outputs/`:
+```
+fastqc_output.json
+multiqc_output.json
+rseqc_output.json
+star_align_output.json
+samtools_output.json
+htseq_output.json
+salmon_quant_output.json
+rsem_output.json
+gatk_haplotypecaller_output.json
+gatk_variant_filter_output.json
+rmats_output.json
+deseq2_output.json
+reactome_gsea_output.json
+cellranger_count_output.json
+scanpy_output.json
+```
+
+Each fixture is a JSON serialization of the corresponding `ToolOutput` Pydantic model. The `MockToolRegistry` in `src/tools/mock_registry.py` maps tool function names to fixture paths and is injected at the `BaseStageAgent` level when `dry_run=True`.
+
+---
+
 ## Versioning
 Tool contracts are versioned alongside the codebase.
 Any breaking change to an Input or Output schema requires a new task and review.

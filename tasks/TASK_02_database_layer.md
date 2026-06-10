@@ -20,7 +20,7 @@ src/db/
     genome.py          # ReferenceGenome
     project.py         # Project, Sample, RunSample
     run.py             # AnalysisRun, PipelineStage, Artifact
-    results.py         # QCMetric, DEGResult, GSEAResult, VariantCall
+    results.py         # QCMetric, DEGResult, GSEAResult, VariantCall, SplicingResult, scRNAClusterResult
   session.py           # engine, SessionLocal, get_db
   enums.py             # all Enum definitions
 alembic/
@@ -34,6 +34,7 @@ src/schemas/
   project.py
   run.py
   results.py
+  auth.py              # APIKey schemas
   common.py            # shared base schemas (UUIDModel, TimestampMixin)
 ```
 
@@ -46,6 +47,11 @@ src/schemas/
 - [ ] All Pydantic schemas validate correct payloads and reject invalid ones (unit tested).
 - [ ] `get_db` dependency yields a session and rolls back on exception.
 - [ ] `ReferenceGenome`, `AnalysisRun`, `PipelineStage`, `DEGResult` each have at least 3 unit tests covering creation, validation, and constraint violations.
+- [ ] `SplicingResult`, `scRNAClusterResult`, `APIKey` models created and tested.
+- [ ] `PipelineStage.exit_code` column present and populated by tool error handling.
+- [ ] `AnalysisRun.created_by` is NOT NULL and references `APIKey.id`.
+- [ ] `DEGResult` table has composite index on `(run_id, contrast, padj)`.
+- [ ] `models/auth.py` created with `APIKey` ORM model; key stored as SHA-256 hash only.
 - [ ] Alembic migration is reversible (`alembic downgrade -1` succeeds).
 
 ## Definition of Done

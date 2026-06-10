@@ -118,6 +118,7 @@ Stage Router (LangGraph conditional edges)
     ├──[align]───→ Alignment Agent node
     ├──[quant]───→ Quantification Agent node
     ├──[variant]─→ Variant Agent node
+    ├──[splicing]→ Splicing Agent node
     ├──[de]──────→ DE Agent node
     ├──[gsea]────→ GSEA Agent node
     ├──[scrnaseq]→ scRNA Agent node
@@ -136,7 +137,37 @@ Each node:
 5. Updates graph state with `StageOutput`.
 6. Returns control to router.
 
-## 4. Data Flow
+## 4. LangGraph + OpenAI Agents SDK Boundary
+
+**LangGraph owns:**
+- DAG routing and conditional edges between pipeline stages.
+- `RunState` / `StageState` typed state schemas.
+- Checkpointing: state snapshots persisted to `AnalysisRun.agent_state`.
+- Resume logic: graph re-enters from the last completed node after a crash.
+
+**OpenAI Agents SDK is used for:**
+- Single-turn LLM completions for intent parsing (converting natural language to `RunConfig`).
+- Single-turn LLM completions for stage summaries (converting `StageOutput` to human-readable narrative).
+
+**LangGraph nodes do NOT run an Agents SDK agent loop.** Each node is a Python function that calls the SDK's `client.chat.completions.create()` directly for any LLM work, then calls deterministic tools, then returns. The Agents SDK is used as an LLM client, not as a routing framework.
+
+**Genome resolution flow**: When a user's natural-language request references a genome (e.g. "use GRCh38"), the intent parser queries the registered `ReferenceGenome` table and includes the list of available genomes in the prompt. The LLM selects by `id`; if ambiguous, the Orchestrator returns an error asking the user to specify the exact genome name.
+
+---
+
+## 5. Log Aggregation for WebSocket Streaming
+
+Real-time log streaming to `WS /ws/runs/{run_id}/logs` requires collecting logs from three sources:
+
+- **Local subprocess tools**: stdout/stderr captured line-by-line via `subprocess.PIPE` and forwarded to a Redis pub/sub channel keyed on `run_id`.
+- **Nextflow local**: Nextflow writes `.nextflow.log` and per-process logs; a file-watcher tails these and publishes new lines to the same Redis channel.
+- **AWS Batch**: a background poller queries CloudWatch Logs for the job's log stream at 5-second intervals and publishes new lines.
+
+The WebSocket handler subscribes to the Redis channel for `run_id` and forwards messages to connected clients. Log lines are stored to `PipelineStage.log_path` as flat files in parallel.
+
+---
+
+## 6. Data Flow
 
 ```
 FASTQ (S3 / local)
@@ -151,19 +182,21 @@ FASTQ (S3 / local)
     → Report (HTML / Markdown)
 ```
 
-## 5. Genome & Reference Configuration
+## 7. Genome & Reference Configuration
 - Genomes registered in DB: `ReferenceGenome` table.
 - Fields: species, build (GRCh38, mm10, etc.), FASTA path, GTF path, STAR index path, Salmon index path.
 - Agents select genome from run config; never from LLM free text.
+- See "Genome resolution flow" in Section 4 for how natural-language genome references are resolved.
 - Supports multi-genome runs (e.g. hybrid host+pathogen).
 
-## 6. Single-Cell Support
+## 8. Single-Cell Support
 - CellRanger wraps 10x Genomics data preprocessing.
 - Output: filtered feature-barcode matrix.
 - Scanpy / Seurat pipeline: clustering, UMAP, marker genes.
+- Results stored in `scRNAClusterResult` table (per `data_models.md`).
 - Example dataset in `examples/scrnaseq/`.
 
-## 7. Deployment Topology
+## 9. Deployment Topology
 
 ```
 dev:   docker-compose (API + SQLite + Streamlit + local Nextflow)
