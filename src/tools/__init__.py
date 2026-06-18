@@ -1,4 +1,6 @@
 from src.tools.alignment.samtools import SamtoolsInput, SamtoolsOutput, run_samtools_sort_index
+from src.tools.de.deseq2 import DEContrast, DESeq2Input, DESeq2Output, run_deseq2
+from src.tools.gsea.reactome import ReactomeGSEAInput, ReactomeGSEAOutput, run_reactome_gsea
 from src.tools.alignment.star import STARAlignInput, STARAlignOutput, run_star_align
 from src.tools.qc.fastqc import FastQCInput, FastQCOutput, run_fastqc
 from src.tools.qc.multiqc import MultiQCInput, MultiQCOutput, run_multiqc
@@ -50,4 +52,11 @@ __all__ = [
     "RMATSInput",
     "RMATSOutput",
     "run_rmats",
+    "DEContrast",
+    "DESeq2Input",
+    "DESeq2Output",
+    "run_deseq2",
+    "ReactomeGSEAInput",
+    "ReactomeGSEAOutput",
+    "run_reactome_gsea",
 ]

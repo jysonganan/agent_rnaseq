@@ -39,6 +39,11 @@ dependencies = [
     "rich>=13.7.0",
 ]
 
+# External (non-Python) runtime dependencies:
+#   R >= 4.0  https://www.r-project.org/
+#   Bioconductor packages: DESeq2, fgsea, reactome.db, org.Hs.eg.db, org.Mm.eg.db
+#   Install: BiocManager::install(c("DESeq2","fgsea","reactome.db","org.Hs.eg.db","org.Mm.eg.db"))
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.2.0",
