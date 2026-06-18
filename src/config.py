@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,20 @@ class Settings(BaseSettings):
 
     # ── LLM ──────────────────────────────────────────────────────────────────
     openai_api_key: str = Field(..., description="OpenAI API key for Agents SDK")
+    agent_llm_model: str = Field(
+        default="gpt-4o",
+        description="OpenAI model used for intent parsing and stage summaries",
+    )
+
+    @field_validator("agent_llm_model")
+    @classmethod
+    def _validate_agent_llm_model(cls, v: str) -> str:
+        allowed = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo"}
+        if v not in allowed:
+            raise ValueError(
+                f"AGENT_LLM_MODEL must be one of {sorted(allowed)}, got '{v}'"
+            )
+        return v
 
     # ── Output storage ────────────────────────────────────────────────────────
     output_root: str = "/tmp/agent_rnaseq"
