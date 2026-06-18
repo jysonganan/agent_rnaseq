@@ -32,12 +32,18 @@ dependencies = [
     "streamlit>=1.35.0",
     "pandas>=2.2.0",
     "plotly>=5.22.0",
+    # Single-cell RNA-seq
+    "scanpy>=1.9.0",
+    "anndata>=0.10.0",
     # Utilities
     "python-multipart>=0.0.9",
     "python-dotenv>=1.0.0",
     "tenacity>=8.3.0",
     "rich>=13.7.0",
 ]
+
+# External (non-Python) runtime dependencies (scRNA):
+#   CellRanger >= 7.0  https://www.10xgenomics.com/support/software/cell-ranger
 
 # External (non-Python) runtime dependencies:
 #   R >= 4.0  https://www.r-project.org/

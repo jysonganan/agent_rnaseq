@@ -1,4 +1,6 @@
 from src.tools.alignment.samtools import SamtoolsInput, SamtoolsOutput, run_samtools_sort_index
+from src.tools.scrna.cellranger import CellRangerCountInput, CellRangerCountOutput, run_cellranger_count
+from src.tools.scrna.scanpy_tool import ClusterSummary, ScanpyInput, ScanpyOutput, run_scanpy_pipeline
 from src.tools.de.deseq2 import DEContrast, DESeq2Input, DESeq2Output, run_deseq2
 from src.tools.gsea.reactome import ReactomeGSEAInput, ReactomeGSEAOutput, run_reactome_gsea
 from src.tools.alignment.star import STARAlignInput, STARAlignOutput, run_star_align
@@ -59,4 +61,11 @@ __all__ = [
     "ReactomeGSEAInput",
     "ReactomeGSEAOutput",
     "run_reactome_gsea",
+    "CellRangerCountInput",
+    "CellRangerCountOutput",
+    "run_cellranger_count",
+    "ClusterSummary",
+    "ScanpyInput",
+    "ScanpyOutput",
+    "run_scanpy_pipeline",
 ]
