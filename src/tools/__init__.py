@@ -3,6 +3,9 @@ from src.tools.alignment.star import STARAlignInput, STARAlignOutput, run_star_a
 from src.tools.qc.fastqc import FastQCInput, FastQCOutput, run_fastqc
 from src.tools.qc.multiqc import MultiQCInput, MultiQCOutput, run_multiqc
 from src.tools.qc.rseqc import RSeQCInput, RSeQCOutput, run_rseqc
+from src.tools.quantification.htseq import HTSeqInput, HTSeqOutput, run_htseq_count
+from src.tools.quantification.rsem import RSEMInput, RSEMOutput, run_rsem
+from src.tools.quantification.salmon import SalmonQuantInput, SalmonQuantOutput, run_salmon_quant
 
 __all__ = [
     "FastQCInput",
@@ -20,4 +23,13 @@ __all__ = [
     "SamtoolsInput",
     "SamtoolsOutput",
     "run_samtools_sort_index",
+    "HTSeqInput",
+    "HTSeqOutput",
+    "run_htseq_count",
+    "SalmonQuantInput",
+    "SalmonQuantOutput",
+    "run_salmon_quant",
+    "RSEMInput",
+    "RSEMOutput",
+    "run_rsem",
 ]

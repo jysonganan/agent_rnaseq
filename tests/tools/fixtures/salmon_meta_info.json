@@ -1,0 +1,8 @@
+{
+    "salmon_version": "1.10.0",
+    "library_types": ["ISR"],
+    "inferred_library_type": "ISR",
+    "num_processed": 50000000,
+    "num_mapped": 47500000,
+    "mappingRate": 95.0
+}
