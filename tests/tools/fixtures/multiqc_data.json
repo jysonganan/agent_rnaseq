@@ -1,0 +1,16 @@
+{
+    "ctrl_1": {
+        "pct_duplicates": 12.3,
+        "pct_gc": 50.1,
+        "avg_sequence_length": 150.0,
+        "total_sequences": 45000000,
+        "pct_pass_filter": 100.0
+    },
+    "trt_1": {
+        "pct_duplicates": 15.7,
+        "pct_gc": 49.8,
+        "avg_sequence_length": 150.0,
+        "total_sequences": 42000000,
+        "pct_pass_filter": 100.0
+    }
+}

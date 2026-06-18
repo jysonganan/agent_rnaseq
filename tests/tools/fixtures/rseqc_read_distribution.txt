@@ -1,0 +1,19 @@
+Processing BAM file: /data/ctrl_1.bam
+Load BED file: /ref/genes.bed
+
+Total Reads                   45000000
+Total Tags                    45000000
+Total Assigned Tags           42750000
+
+Group               Total_bases         Tag_count           Tags/Kb
+CDS_Exons           34560000            38000000            1099.54
+5'UTR_Exons         4320000             2500000             578.70
+3'UTR_Exons         8640000             2000000             231.48
+Introns             50000000            250000              5.00
+TSS_up_1kb          5000000             150000              30.00
+TSS_up_5kb          25000000            500000              20.00
+TSS_up_10kb         50000000            750000              15.00
+TES_down_1kb        5000000             100000              20.00
+TES_down_5kb        25000000            200000              8.00
+TES_down_10kb       50000000            300000              6.00
+Other_intergenic    100000000           500000              5.00
