@@ -6,6 +6,15 @@ from src.tools.qc.rseqc import RSeQCInput, RSeQCOutput, run_rseqc
 from src.tools.quantification.htseq import HTSeqInput, HTSeqOutput, run_htseq_count
 from src.tools.quantification.rsem import RSEMInput, RSEMOutput, run_rsem
 from src.tools.quantification.salmon import SalmonQuantInput, SalmonQuantOutput, run_salmon_quant
+from src.tools.splicing.rmats import RMATSInput, RMATSOutput, run_rmats
+from src.tools.variant.gatk import (
+    GATKHaplotypeCallerInput,
+    GATKHaplotypeCallerOutput,
+    GATKVariantFilterInput,
+    GATKVariantFilterOutput,
+    run_gatk_haplotypecaller,
+    run_gatk_variant_filter,
+)
 
 __all__ = [
     "FastQCInput",
@@ -32,4 +41,13 @@ __all__ = [
     "RSEMInput",
     "RSEMOutput",
     "run_rsem",
+    "GATKHaplotypeCallerInput",
+    "GATKHaplotypeCallerOutput",
+    "run_gatk_haplotypecaller",
+    "GATKVariantFilterInput",
+    "GATKVariantFilterOutput",
+    "run_gatk_variant_filter",
+    "RMATSInput",
+    "RMATSOutput",
+    "run_rmats",
 ]

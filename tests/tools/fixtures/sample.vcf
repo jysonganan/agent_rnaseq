@@ -1,0 +1,11 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##FILTER=<ID=QDFilter,Description="QD < 2.0">
+##FILTER=<ID=FSFilter,Description="FS > 60.0">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Approximate read depth">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	100	.	A	T	100.00	PASS	DP=50
+chr1	200	.	G	C	80.50	PASS	DP=45
+chr1	300	.	T	A	30.00	QDFilter	DP=20
+chr1	400	.	C	G	25.00	FSFilter	DP=18
+chr1	500	.	A	G	15.00	QDFilter;FSFilter	DP=10

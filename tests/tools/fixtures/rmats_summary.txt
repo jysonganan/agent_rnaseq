@@ -1,0 +1,6 @@
+EventType	TotalEvents	SignificantEvents
+SE	1500	120
+A5SS	300	25
+A3SS	280	18
+MXE	450	40
+RI	600	55
