@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    volumes:
+      # Mount source for live reload in dev
+      - ../src:/app/src:ro
+      # Persist SQLite DB between restarts
+      - db_data:/app/data
+      # Artifact output root
+      - artifacts:/tmp/agent_rnaseq
+    environment:
+      DATABASE_URL: sqlite:////app/data/agent_rnaseq.db
+      OUTPUT_ROOT: /tmp/agent_rnaseq
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    env_file:
+      - ../.env
+    volumes:
+      - ../src:/app/src:ro
+      - artifacts:/tmp/agent_rnaseq:ro
+    environment:
+      OUTPUT_ROOT: /tmp/agent_rnaseq
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  artifacts:
