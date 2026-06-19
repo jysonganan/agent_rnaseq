@@ -1,0 +1,10 @@
+{
+  "run_id": "test-run-001",
+  "run_name": "Test RNA-seq Run",
+  "available": {
+    "de_results": "de_results.csv",
+    "gsea_results": "gsea_results.csv",
+    "qc_metrics": "qc_metrics.json",
+    "sc_umap": null
+  }
+}

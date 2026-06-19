@@ -1,0 +1,11 @@
+gene_id,gene_name,baseMean,log2FoldChange,lfcSE,stat,pvalue,padj,contrast
+ENSG001,TSPAN6,1500.0,2.5,0.20,12.5,1e-08,5e-07,treated_vs_ctrl
+ENSG002,DPM1,800.0,-1.8,0.15,-12.0,2e-07,8e-06,treated_vs_ctrl
+ENSG003,SCYL3,200.0,1.2,0.30,4.0,0.0001,0.0005,treated_vs_ctrl
+ENSG004,C1orf112,3000.0,1.5,0.25,6.0,0.001,0.005,treated_vs_ctrl
+ENSG005,FGR,500.0,-1.3,0.20,-6.5,0.0005,0.010,treated_vs_ctrl
+ENSG006,CFH,1200.0,0.8,0.15,5.3,0.003,0.030,treated_vs_ctrl
+ENSG007,FUCA2,250.0,0.3,0.30,1.0,0.300,0.500,treated_vs_ctrl
+ENSG008,GCLC,600.0,-0.2,0.20,-1.0,0.300,0.550,treated_vs_ctrl
+ENSG009,NFYA,90.0,0.1,0.40,0.25,0.800,0.900,treated_vs_ctrl
+ENSG010,STPG1,3500.0,-0.05,0.10,-0.5,0.600,0.850,treated_vs_ctrl

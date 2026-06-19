@@ -1,0 +1,20 @@
+{
+  "samples": [
+    {
+      "sample_id": "S1_treated",
+      "total_reads": 25000000,
+      "mapped_reads": 24000000,
+      "mapping_rate": 96.0,
+      "dup_rate": 12.3,
+      "median_insert_size": 180
+    },
+    {
+      "sample_id": "S2_control",
+      "total_reads": 22000000,
+      "mapped_reads": 21010000,
+      "mapping_rate": 95.5,
+      "dup_rate": 11.0,
+      "median_insert_size": 175
+    }
+  ]
+}
