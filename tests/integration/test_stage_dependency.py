@@ -16,6 +16,7 @@ def agent() -> OrchestratorAgent:
 
 # ── Valid combinations ────────────────────────────────────────────────────────
 
+
 def test_qc_only_is_valid(agent):
     agent.validate_stage_dependencies(["qc"])
 
@@ -57,6 +58,7 @@ def test_gsea_with_full_chain_is_valid(agent):
 
 
 # ── Invalid combinations ──────────────────────────────────────────────────────
+
 
 def test_quantification_without_alignment_raises(agent):
     with pytest.raises(OrchestratorError, match="alignment"):

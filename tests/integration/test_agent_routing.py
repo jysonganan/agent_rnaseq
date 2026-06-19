@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
 from unittest.mock import MagicMock
+
+import pytest
 
 from src.agents.orchestrator import OrchestratorAgent, OrchestratorError
 from src.agents.router import build_pipeline_graph
@@ -15,6 +15,7 @@ def _orchestrator() -> OrchestratorAgent:
 
 
 # ── LangGraph stub routing ─────────────────────────────────────────────────────
+
 
 def _run_graph(stages: list[str]) -> dict:
     """Compile and invoke the pipeline graph with the given stage plan."""
@@ -71,6 +72,7 @@ def test_completed_stages_order_preserved():
 
 # ── OrchestratorAgent.validate_genome ─────────────────────────────────────────
 
+
 def test_validate_genome_passes_for_known_genome():
     agent = _orchestrator()
     available = [{"id": "genome-001", "name": "GRCh38"}, {"id": "genome-002", "name": "GRCm39"}]
@@ -91,6 +93,7 @@ def test_validate_genome_empty_list_raises():
 
 
 # ── validate_stage_dependencies (exercised via OrchestratorAgent) ─────────────
+
 
 def test_validate_stages_qc_alone_passes():
     _orchestrator().validate_stage_dependencies(["qc"])

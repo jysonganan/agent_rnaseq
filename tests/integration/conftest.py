@@ -49,6 +49,7 @@ def _create_synthetic_fastq():
 
 # ── Agent / DB fixtures ───────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def db() -> Session:
     """Isolated in-memory SQLite session for agent integration tests."""
@@ -60,6 +61,7 @@ def db() -> Session:
 
 
 # ── API test fixtures ─────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def api_engine():
@@ -132,20 +134,22 @@ def api_client(api_engine, api_seed):
 
     from fastapi.testclient import TestClient
 
-    with patch("src.api.routers.runs._enqueue_run", new_callable=AsyncMock):
-        with TestClient(app, raise_server_exceptions=True) as client:
-            client._seed = api_seed  # type: ignore[attr-defined]
-            yield client
+    with (
+        patch("src.api.routers.runs._enqueue_run", new_callable=AsyncMock),
+        TestClient(app, raise_server_exceptions=True) as client,
+    ):
+        client._seed = api_seed  # type: ignore[attr-defined]
+        yield client
 
     app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limiter():
+    import contextlib
+
     from src.api.rate_limit import limiter
 
-    try:
+    with contextlib.suppress(Exception):
         limiter._storage.reset()
-    except Exception:
-        pass
     yield

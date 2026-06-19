@@ -11,7 +11,6 @@ from src.db.models.run import Artifact, PipelineStage
 from src.tools.alignment.samtools import SamtoolsOutput
 from src.tools.alignment.star import STARAlignOutput
 from src.tools.variant.gatk import GATKHaplotypeCallerOutput, GATKVariantFilterOutput
-
 from tests.integration.conftest import FIXTURES_DIR, RUN_ID, SAMPLE_ID
 
 
@@ -82,9 +81,18 @@ def _variant_input() -> dict:
 def test_variant_stage_completes(db):
     with (
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.variant_agent.run_gatk_haplotypecaller", return_value=_mock_gatk_hc()),
-        patch("src.agents.specialists.variant_agent.run_gatk_variant_filter", return_value=_mock_gatk_filter()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.variant_agent.run_gatk_haplotypecaller",
+            return_value=_mock_gatk_hc(),
+        ),
+        patch(
+            "src.agents.specialists.variant_agent.run_gatk_variant_filter",
+            return_value=_mock_gatk_filter(),
+        ),
     ):
         AlignmentAgent(db).run(_align_input())
         VariantAgent(db).run(_variant_input())
@@ -97,17 +105,23 @@ def test_variant_stage_completes(db):
 def test_vcf_artifact_written(db):
     with (
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.variant_agent.run_gatk_haplotypecaller", return_value=_mock_gatk_hc()),
-        patch("src.agents.specialists.variant_agent.run_gatk_variant_filter", return_value=_mock_gatk_filter()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.variant_agent.run_gatk_haplotypecaller",
+            return_value=_mock_gatk_hc(),
+        ),
+        patch(
+            "src.agents.specialists.variant_agent.run_gatk_variant_filter",
+            return_value=_mock_gatk_filter(),
+        ),
     ):
         AlignmentAgent(db).run(_align_input())
         VariantAgent(db).run(_variant_input())
 
-    vcf_artifacts = [
-        a for a in db.query(Artifact).all()
-        if a.artifact_type == ArtifactType.vcf
-    ]
+    vcf_artifacts = [a for a in db.query(Artifact).all() if a.artifact_type == ArtifactType.vcf]
     assert len(vcf_artifacts) == 1
     assert vcf_artifacts[0].path == "/out/variant/filtered.vcf.gz"
 
@@ -115,15 +129,23 @@ def test_vcf_artifact_written(db):
 def test_variant_tool_version_recorded(db):
     with (
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.variant_agent.run_gatk_haplotypecaller", return_value=_mock_gatk_hc()),
-        patch("src.agents.specialists.variant_agent.run_gatk_variant_filter", return_value=_mock_gatk_filter()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.variant_agent.run_gatk_haplotypecaller",
+            return_value=_mock_gatk_hc(),
+        ),
+        patch(
+            "src.agents.specialists.variant_agent.run_gatk_variant_filter",
+            return_value=_mock_gatk_filter(),
+        ),
     ):
         AlignmentAgent(db).run(_align_input())
         VariantAgent(db).run(_variant_input())
 
     variant_stage = next(
-        s for s in db.query(PipelineStage).all()
-        if str(s.stage_name) == "variant_calling"
+        s for s in db.query(PipelineStage).all() if str(s.stage_name) == "variant_calling"
     )
     assert variant_stage.tool_version == "GATK 4.4.0.0"

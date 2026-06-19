@@ -17,7 +17,7 @@ except ImportError:
 
 pytestmark = pytest.mark.skipif(not _HAS_MOTO, reason="moto not installed")
 
-from src.aws.s3 import S3FileManager
+from src.aws.s3 import S3FileManager  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

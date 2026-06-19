@@ -46,7 +46,9 @@ def test_create_run_message_queued(api_client):
 
 def test_list_runs_includes_created_run(api_client):
     seed = api_client._seed
-    create_resp = api_client.post("/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS)
+    create_resp = api_client.post(
+        "/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS
+    )
     run_id = create_resp.json()["run_id"]
 
     list_resp = api_client.get("/api/v1/runs", headers=AUTH_HEADERS)
@@ -57,7 +59,9 @@ def test_list_runs_includes_created_run(api_client):
 
 def test_get_run_detail_returns_stages_list(api_client):
     seed = api_client._seed
-    create_resp = api_client.post("/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS)
+    create_resp = api_client.post(
+        "/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS
+    )
     run_id = create_resp.json()["run_id"]
 
     detail_resp = api_client.get(f"/api/v1/runs/{run_id}", headers=AUTH_HEADERS)
@@ -67,7 +71,9 @@ def test_get_run_detail_returns_stages_list(api_client):
 
 def test_get_run_detail_name_matches(api_client):
     seed = api_client._seed
-    create_resp = api_client.post("/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS)
+    create_resp = api_client.post(
+        "/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS
+    )
     run_id = create_resp.json()["run_id"]
 
     detail_resp = api_client.get(f"/api/v1/runs/{run_id}", headers=AUTH_HEADERS)
@@ -76,7 +82,9 @@ def test_get_run_detail_name_matches(api_client):
 
 def test_cancel_pending_run_returns_cancelled(api_client):
     seed = api_client._seed
-    create_resp = api_client.post("/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS)
+    create_resp = api_client.post(
+        "/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS
+    )
     run_id = create_resp.json()["run_id"]
 
     cancel_resp = api_client.post(f"/api/v1/runs/{run_id}/cancel", headers=AUTH_HEADERS)
@@ -86,12 +94,14 @@ def test_cancel_pending_run_returns_cancelled(api_client):
 
 def test_cancel_nonexistent_run_returns_404(api_client):
     import uuid
+
     resp = api_client.post(f"/api/v1/runs/{uuid.uuid4()}/cancel", headers=AUTH_HEADERS)
     assert resp.status_code == 404
 
 
 def test_get_nonexistent_run_returns_404(api_client):
     import uuid
+
     resp = api_client.get(f"/api/v1/runs/{uuid.uuid4()}", headers=AUTH_HEADERS)
     assert resp.status_code == 404
 
@@ -109,7 +119,9 @@ def test_list_runs_requires_auth(api_client):
 
 def test_cancel_already_cancelled_run_returns_409(api_client):
     seed = api_client._seed
-    create_resp = api_client.post("/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS)
+    create_resp = api_client.post(
+        "/api/v1/runs", json=_create_run_payload(seed), headers=AUTH_HEADERS
+    )
     run_id = create_resp.json()["run_id"]
 
     api_client.post(f"/api/v1/runs/{run_id}/cancel", headers=AUTH_HEADERS)

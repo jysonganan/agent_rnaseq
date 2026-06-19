@@ -10,7 +10,6 @@ from src.db.models.results import ScRNAClusterResult
 from src.db.models.run import Artifact, PipelineStage
 from src.tools.scrna.cellranger import CellRangerCountOutput
 from src.tools.scrna.scanpy_tool import ClusterSummary, ScanpyOutput
-
 from tests.integration.conftest import RUN_ID, SAMPLE_ID
 
 
@@ -56,8 +55,13 @@ def _scrna_input() -> dict:
 
 def test_scrna_stage_completes(db):
     with (
-        patch("src.agents.specialists.scrna_agent.run_cellranger_count", return_value=_mock_cellranger()),
-        patch("src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()),
+        patch(
+            "src.agents.specialists.scrna_agent.run_cellranger_count",
+            return_value=_mock_cellranger(),
+        ),
+        patch(
+            "src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()
+        ),
     ):
         scRNAAgent(db).run(_scrna_input())
 
@@ -67,8 +71,13 @@ def test_scrna_stage_completes(db):
 
 def test_scrna_cluster_results_written(db):
     with (
-        patch("src.agents.specialists.scrna_agent.run_cellranger_count", return_value=_mock_cellranger()),
-        patch("src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()),
+        patch(
+            "src.agents.specialists.scrna_agent.run_cellranger_count",
+            return_value=_mock_cellranger(),
+        ),
+        patch(
+            "src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()
+        ),
     ):
         scRNAAgent(db).run(_scrna_input())
 
@@ -78,8 +87,13 @@ def test_scrna_cluster_results_written(db):
 
 def test_scrna_cluster_count(db):
     with (
-        patch("src.agents.specialists.scrna_agent.run_cellranger_count", return_value=_mock_cellranger()),
-        patch("src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()),
+        patch(
+            "src.agents.specialists.scrna_agent.run_cellranger_count",
+            return_value=_mock_cellranger(),
+        ),
+        patch(
+            "src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()
+        ),
     ):
         scRNAAgent(db).run(_scrna_input())
 
@@ -91,8 +105,13 @@ def test_scrna_cluster_count(db):
 
 def test_scrna_total_cells_correct(db):
     with (
-        patch("src.agents.specialists.scrna_agent.run_cellranger_count", return_value=_mock_cellranger()),
-        patch("src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()),
+        patch(
+            "src.agents.specialists.scrna_agent.run_cellranger_count",
+            return_value=_mock_cellranger(),
+        ),
+        patch(
+            "src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()
+        ),
     ):
         scRNAAgent(db).run(_scrna_input())
 
@@ -103,8 +122,13 @@ def test_scrna_total_cells_correct(db):
 
 def test_scrna_artifacts_written(db):
     with (
-        patch("src.agents.specialists.scrna_agent.run_cellranger_count", return_value=_mock_cellranger()),
-        patch("src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()),
+        patch(
+            "src.agents.specialists.scrna_agent.run_cellranger_count",
+            return_value=_mock_cellranger(),
+        ),
+        patch(
+            "src.agents.specialists.scrna_agent.run_scanpy_pipeline", return_value=_mock_scanpy()
+        ),
     ):
         scRNAAgent(db).run(_scrna_input())
 

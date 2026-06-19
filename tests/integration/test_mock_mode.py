@@ -4,17 +4,12 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from src.agents.base_agent import MockToolRegistry
 from src.agents.specialists.alignment_agent import AlignmentAgent
 from src.agents.specialists.de_agent import DEAgent
-from src.agents.specialists.gsea_agent import GSEAAgent
 from src.agents.specialists.qc_agent import QCAgent
-from src.agents.specialists.quantification_agent import QuantificationAgent
 from src.agents.state import RunState
 from src.db.models.run import PipelineStage
-
 from tests.integration.conftest import FIXTURES_DIR, RUN_ID, SAMPLE_ID
 
 
@@ -147,8 +142,13 @@ def test_non_dry_run_calls_tool(db):
     )
 
     with (
-        patch("src.agents.specialists.alignment_agent.run_star_align", return_value=mock_star) as mock_s,
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=mock_samtools),
+        patch(
+            "src.agents.specialists.alignment_agent.run_star_align", return_value=mock_star
+        ) as mock_s,
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=mock_samtools,
+        ),
     ):
         agent = AlignmentAgent(db, dry_run=False)
         state = _make_run_state("alignment", _align_config())

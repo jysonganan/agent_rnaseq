@@ -12,7 +12,6 @@ from src.db.models.run import PipelineStage
 from src.tools.alignment.samtools import SamtoolsOutput
 from src.tools.alignment.star import STARAlignOutput
 from src.tools.splicing.rmats import RMATSOutput
-
 from tests.integration.conftest import FIXTURES_DIR, RUN_ID, SAMPLE_ID
 
 
@@ -74,7 +73,10 @@ def _splicing_input() -> dict:
 def test_splicing_stage_completes(db):
     with (
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
         patch("src.agents.specialists.splicing_agent.run_rmats", return_value=_mock_rmats()),
     ):
         AlignmentAgent(db).run(_align_input())
@@ -88,7 +90,10 @@ def test_splicing_stage_completes(db):
 def test_splicing_results_written_to_db(db):
     with (
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
         patch("src.agents.specialists.splicing_agent.run_rmats", return_value=_mock_rmats()),
     ):
         AlignmentAgent(db).run(_align_input())
@@ -102,7 +107,10 @@ def test_splicing_results_written_to_db(db):
 def test_splicing_event_types_stored(db):
     with (
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
         patch("src.agents.specialists.splicing_agent.run_rmats", return_value=_mock_rmats()),
     ):
         AlignmentAgent(db).run(_align_input())
@@ -117,7 +125,10 @@ def test_splicing_event_types_stored(db):
 def test_splicing_contrast_stored(db):
     with (
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
         patch("src.agents.specialists.splicing_agent.run_rmats", return_value=_mock_rmats()),
     ):
         AlignmentAgent(db).run(_align_input())

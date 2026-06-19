@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import pytest
-
 from src.agents.specialists.alignment_agent import AlignmentAgent
 from src.agents.specialists.de_agent import DEAgent
 from src.agents.specialists.gsea_agent import GSEAAgent
@@ -23,10 +21,9 @@ from src.tools.alignment.star import STARAlignOutput
 from src.tools.de.deseq2 import DESeq2Output
 from src.tools.de.parsers import DEContrastSummary
 from src.tools.gsea.reactome import ReactomeGSEAOutput
-from src.tools.quantification.htseq import HTSeqOutput
 from src.tools.qc.fastqc import FastQCOutput
 from src.tools.qc.multiqc import MultiQCOutput
-
+from src.tools.quantification.htseq import HTSeqOutput
 from tests.integration.conftest import FIXTURES_DIR, RUN_ID, SAMPLE_ID
 
 _DE_CSV = (
@@ -162,7 +159,9 @@ def _de_input() -> dict:
         "run_id": RUN_ID,
         "counts_matrix_path": "/out/quant/counts.tsv",
         "sample_metadata_path": "/out/metadata.csv",
-        "contrasts": [{"name": "treatment_vs_control", "numerator": "treatment", "denominator": "control"}],
+        "contrasts": [
+            {"name": "treatment_vs_control", "numerator": "treatment", "denominator": "control"}
+        ],
         "output_dir": "/out/de",
         "alpha": 0.05,
         "lfc_threshold": 0.0,
@@ -185,8 +184,14 @@ def test_all_five_stages_complete(db):
         patch("src.agents.specialists.qc_agent.run_fastqc", return_value=_mock_fastqc()),
         patch("src.agents.specialists.qc_agent.run_multiqc", return_value=_mock_multiqc()),
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.quantification_agent.run_htseq_count", return_value=_mock_htseq()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.quantification_agent.run_htseq_count",
+            return_value=_mock_htseq(),
+        ),
         patch("src.agents.specialists.de_agent.run_deseq2", return_value=_mock_deseq2()),
         patch("src.agents.specialists.de_agent._read_deseq2_file", return_value=_DE_CSV),
         patch("src.agents.specialists.gsea_agent.run_reactome_gsea", return_value=_mock_gsea()),
@@ -208,8 +213,14 @@ def test_stage_names_match_pipeline_order(db):
         patch("src.agents.specialists.qc_agent.run_fastqc", return_value=_mock_fastqc()),
         patch("src.agents.specialists.qc_agent.run_multiqc", return_value=_mock_multiqc()),
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.quantification_agent.run_htseq_count", return_value=_mock_htseq()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.quantification_agent.run_htseq_count",
+            return_value=_mock_htseq(),
+        ),
         patch("src.agents.specialists.de_agent.run_deseq2", return_value=_mock_deseq2()),
         patch("src.agents.specialists.de_agent._read_deseq2_file", return_value=_DE_CSV),
         patch("src.agents.specialists.gsea_agent.run_reactome_gsea", return_value=_mock_gsea()),
@@ -230,8 +241,14 @@ def test_deg_results_written_to_db(db):
         patch("src.agents.specialists.qc_agent.run_fastqc", return_value=_mock_fastqc()),
         patch("src.agents.specialists.qc_agent.run_multiqc", return_value=_mock_multiqc()),
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.quantification_agent.run_htseq_count", return_value=_mock_htseq()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.quantification_agent.run_htseq_count",
+            return_value=_mock_htseq(),
+        ),
         patch("src.agents.specialists.de_agent.run_deseq2", return_value=_mock_deseq2()),
         patch("src.agents.specialists.de_agent._read_deseq2_file", return_value=_DE_CSV),
         patch("src.agents.specialists.gsea_agent.run_reactome_gsea", return_value=_mock_gsea()),
@@ -256,8 +273,14 @@ def test_gsea_results_written_to_db(db):
         patch("src.agents.specialists.qc_agent.run_fastqc", return_value=_mock_fastqc()),
         patch("src.agents.specialists.qc_agent.run_multiqc", return_value=_mock_multiqc()),
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.quantification_agent.run_htseq_count", return_value=_mock_htseq()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.quantification_agent.run_htseq_count",
+            return_value=_mock_htseq(),
+        ),
         patch("src.agents.specialists.de_agent.run_deseq2", return_value=_mock_deseq2()),
         patch("src.agents.specialists.de_agent._read_deseq2_file", return_value=_DE_CSV),
         patch("src.agents.specialists.gsea_agent.run_reactome_gsea", return_value=_mock_gsea()),
@@ -281,8 +304,14 @@ def test_deg_contrast_stored_correctly(db):
         patch("src.agents.specialists.qc_agent.run_fastqc", return_value=_mock_fastqc()),
         patch("src.agents.specialists.qc_agent.run_multiqc", return_value=_mock_multiqc()),
         patch("src.agents.specialists.alignment_agent.run_star_align", return_value=_mock_star()),
-        patch("src.agents.specialists.alignment_agent.run_samtools_sort_index", return_value=_mock_samtools()),
-        patch("src.agents.specialists.quantification_agent.run_htseq_count", return_value=_mock_htseq()),
+        patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            return_value=_mock_samtools(),
+        ),
+        patch(
+            "src.agents.specialists.quantification_agent.run_htseq_count",
+            return_value=_mock_htseq(),
+        ),
         patch("src.agents.specialists.de_agent.run_deseq2", return_value=_mock_deseq2()),
         patch("src.agents.specialists.de_agent._read_deseq2_file", return_value=_DE_CSV),
         patch("src.agents.specialists.gsea_agent.run_reactome_gsea", return_value=_mock_gsea()),
