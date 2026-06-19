@@ -65,6 +65,7 @@ dev = [
     "pre-commit>=3.7.0",
     "types-redis>=4.6.0",
     "sqlalchemy[mypy]>=2.0.30",
+    "moto[s3,batch]>=5.0.0",
 ]
 
 [tool.setuptools.packages.find]

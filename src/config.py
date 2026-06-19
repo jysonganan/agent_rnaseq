@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     s3_artifact_bucket: str = ""
     aws_batch_job_queue: str = ""
     aws_batch_job_definition: str = ""
+    aws_endpoint_url: str = ""  # LocalStack / MinIO endpoint; empty means use real AWS
 
     @model_validator(mode="after")
     def _validate_production_requirements(self) -> "Settings":
