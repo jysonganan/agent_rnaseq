@@ -6,6 +6,7 @@ Production-style computational pipeline agent for end-to-end RNA-seq analysis. S
 
 ## Contents
 
+- [Demo](#demo)
 - [Architecture](#architecture)
 - [Pipeline Stages](#pipeline-stages)
 - [Installation](#installation)
@@ -18,6 +19,43 @@ Production-style computational pipeline agent for end-to-end RNA-seq analysis. S
 - [Docker](#docker)
 - [Development](#development)
 - [Safety Policy](#safety-policy)
+
+---
+
+## Demo
+
+Run the full pipeline on synthetic example data — no bioinformatics tools or Docker required:
+
+```bash
+# Install
+pip install -e ".[dev]"
+
+# One-command demo (generates data → runs pipeline → opens Streamlit)
+make demo
+
+# Or step by step:
+python data/generate_data.py        # generate synthetic FASTQ files
+jupyter lab notebooks/demo.ipynb   # open and run the demo notebook
+```
+
+The notebook (`notebooks/demo.ipynb`) walks through:
+1. Verifying the 8 synthetic FASTQ files in `data/` (4 samples × paired-end)
+2. Initialising a SQLite database
+3. Registering a reference genome, project, and samples
+4. Dispatching the full pipeline via `OrchestratorAgent` and LangGraph (`dry_run=True`)
+5. Generating realistic mock DE results (300 genes), GSEA pathway enrichment (25 Reactome pathways), and QC metrics
+6. Interactive volcano plot, MA plot, and GSEA bubble chart inline in the notebook
+7. Launching the Streamlit dashboard with the generated results
+
+### Record a video demo
+
+```bash
+# Requires: asciinema (brew install asciinema)
+make demo-record
+# Output: demo/demo.cast  (+ demo/demo.gif if agg is installed)
+```
+
+See [`demo/RECORDING_GUIDE.md`](demo/RECORDING_GUIDE.md) for GIF/MP4 conversion, OBS screen recording instructions, and a suggested walkthrough script.
 - [Deployment](#deployment)
 
 ---
