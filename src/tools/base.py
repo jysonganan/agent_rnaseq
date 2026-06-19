@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import enum
 import logging
 import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import wraps
+
+
+class ExecutionBackend(enum.StrEnum):
+    local = "local"
+    nextflow = "nextflow"
+    aws_batch = "aws_batch"
 
 logger = logging.getLogger(__name__)
 

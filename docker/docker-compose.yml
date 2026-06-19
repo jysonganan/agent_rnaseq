@@ -42,6 +42,17 @@ services:
       - api
     restart: unless-stopped
 
+  nextflow:
+    image: nextflow/nextflow:23.10.0
+    volumes:
+      - ../nextflow:/app/nextflow:ro
+      - /tmp/nextflow_work:/tmp/nextflow_work
+    working_dir: /app
+    entrypoint: ["nextflow"]
+    command: ["--help"]
+    profiles:
+      - tools
+
   redis:
     image: redis:7-alpine
     ports:
