@@ -35,6 +35,10 @@ dependencies = [
     # Single-cell RNA-seq
     "scanpy>=1.9.0",
     "anndata>=0.10.0",
+    # Task queue
+    "arq>=0.25.0",
+    # Rate limiting
+    "slowapi>=0.1.9",
     # Utilities
     "python-multipart>=0.0.9",
     "python-dotenv>=1.0.0",
