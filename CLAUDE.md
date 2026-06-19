@@ -76,5 +76,19 @@ pytest tests/ -v
 
 ## Development Environment
 ```bash
-docker-compose up -d  # starts API + DB + Streamlit
+# Start all services (API + DB + Streamlit + Redis + arq-worker)
+docker compose -f docker/docker-compose.yml up -d
+
+# Build Docker images
+make docker-build
+
+# Push images to ECR (set REGISTRY and IMAGE_TAG env vars first)
+make docker-push
+
+# Run integration tests in Docker
+docker compose -f docker/docker-compose.yml \
+               -f docker/docker-compose.test.yml \
+               up --abort-on-container-exit --exit-code-from test-runner
 ```
+
+See `docs/deployment.md` for full production deployment instructions (ECS, AWS Batch, Kubernetes).

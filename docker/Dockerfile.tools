@@ -1,0 +1,147 @@
+# Dockerfile.tools — heavy bioinformatics image
+# Contains: STAR 2.7.11b, GATK 4.5.0.0, Salmon 1.10.3, HTSeq 2.0.5,
+#           samtools 1.19.2, FastQC 0.12.1, RSeQC 5.0.1, RSEM 1.3.3,
+#           rMATS 4.1.2, R 4.3.3, DESeq2 1.42.0, fgsea 1.28.0
+#
+# CellRanger 7.2.0 is LICENSED SOFTWARE from 10x Genomics and cannot be
+# bundled here. To add it:
+#   1. Download from https://www.10xgenomics.com/support/software/cell-ranger
+#   2. Place cellranger-7.2.0.tar.gz in docker/ alongside this file.
+#   3. Uncomment the COPY / RUN block labelled "CellRanger" below.
+
+FROM ubuntu:22.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# ── System base deps ──────────────────────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    curl \
+    unzip \
+    bzip2 \
+    git \
+    build-essential \
+    zlib1g-dev \
+    libbz2-dev \
+    liblzma-dev \
+    libncurses5-dev \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    libxml2-dev \
+    libfontconfig1-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    libtiff5-dev \
+    libjpeg-dev \
+    openjdk-17-jre-headless \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+
+# ── samtools 1.19.2 ──────────────────────────────────────────────────────────
+ARG SAMTOOLS_VERSION=1.19.2
+RUN wget -q "https://github.com/samtools/samtools/releases/download/${SAMTOOLS_VERSION}/samtools-${SAMTOOLS_VERSION}.tar.bz2" \
+    && tar -xjf "samtools-${SAMTOOLS_VERSION}.tar.bz2" \
+    && cd "samtools-${SAMTOOLS_VERSION}" \
+    && ./configure --prefix=/usr/local \
+    && make -j"$(nproc)" \
+    && make install \
+    && cd / && rm -rf "samtools-${SAMTOOLS_VERSION}" "samtools-${SAMTOOLS_VERSION}.tar.bz2"
+
+# ── STAR 2.7.11b ─────────────────────────────────────────────────────────────
+ARG STAR_VERSION=2.7.11b
+RUN wget -q "https://github.com/alexdobin/STAR/releases/download/${STAR_VERSION}/STAR_${STAR_VERSION}.tar.gz" \
+    && tar -xzf "STAR_${STAR_VERSION}.tar.gz" \
+    && install -m 755 "STAR-${STAR_VERSION}/bin/Linux_x86_64_static/STAR" /usr/local/bin/STAR \
+    && rm -rf "STAR_${STAR_VERSION}.tar.gz" "STAR-${STAR_VERSION}"
+
+# ── FastQC 0.12.1 ─────────────────────────────────────────────────────────────
+ARG FASTQC_VERSION=0.12.1
+RUN wget -q "https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastqc_v${FASTQC_VERSION}.zip" \
+    && unzip -q "fastqc_v${FASTQC_VERSION}.zip" \
+    && chmod +x FastQC/fastqc \
+    && mv FastQC /opt/fastqc \
+    && ln -s /opt/fastqc/fastqc /usr/local/bin/fastqc \
+    && rm "fastqc_v${FASTQC_VERSION}.zip"
+
+# ── Salmon 1.10.3 ─────────────────────────────────────────────────────────────
+ARG SALMON_VERSION=1.10.3
+RUN wget -q "https://github.com/COMBINE-lab/salmon/releases/download/v${SALMON_VERSION}/salmon-${SALMON_VERSION}_linux_x86_64.tar.gz" \
+    && tar -xzf "salmon-${SALMON_VERSION}_linux_x86_64.tar.gz" \
+    && install -m 755 "salmon-latest_linux_x86_64/bin/salmon" /usr/local/bin/salmon \
+    && rm -rf "salmon-${SALMON_VERSION}_linux_x86_64.tar.gz" "salmon-latest_linux_x86_64"
+
+# ── GATK 4.5.0.0 ─────────────────────────────────────────────────────────────
+ARG GATK_VERSION=4.5.0.0
+RUN wget -q "https://github.com/broadinstitute/gatk/releases/download/${GATK_VERSION}/gatk-${GATK_VERSION}.zip" \
+    && unzip -q "gatk-${GATK_VERSION}.zip" \
+    && mv "gatk-${GATK_VERSION}" /opt/gatk \
+    && ln -s /opt/gatk/gatk /usr/local/bin/gatk \
+    && rm "gatk-${GATK_VERSION}.zip"
+
+# ── Python tools: HTSeq, RSeQC, RSEM (Python wrappers), rMATS, Scanpy ─────────
+ARG HTSEQ_VERSION=2.0.5
+ARG RSEQC_VERSION=5.0.1
+ARG RSEM_VERSION=1.3.3
+ARG RMATS_VERSION=4.1.2
+ARG SCANPY_VERSION=1.9.8
+
+RUN pip3 install --no-cache-dir \
+    "HTSeq==${HTSEQ_VERSION}" \
+    "RSeQC==${RSEQC_VERSION}" \
+    "scanpy==${SCANPY_VERSION}" \
+    "anndata>=0.10.0"
+
+# ── RSEM 1.3.3 (C++ binary) ──────────────────────────────────────────────────
+RUN wget -q "https://github.com/deweylab/RSEM/archive/refs/tags/v${RSEM_VERSION}.tar.gz" \
+    && tar -xzf "v${RSEM_VERSION}.tar.gz" \
+    && cd "RSEM-${RSEM_VERSION}" \
+    && make -j"$(nproc)" \
+    && make install \
+    && cd / && rm -rf "v${RSEM_VERSION}.tar.gz" "RSEM-${RSEM_VERSION}"
+
+# ── rMATS 4.1.2 ──────────────────────────────────────────────────────────────
+RUN wget -q "https://github.com/Xinglab/rmats-turbo/releases/download/v${RMATS_VERSION}/rmats_turbo_v${RMATS_VERSION}.tar.gz" \
+    && tar -xzf "rmats_turbo_v${RMATS_VERSION}.tar.gz" \
+    && mv "rmats_turbo_v${RMATS_VERSION}" /opt/rmats \
+    && ln -s /opt/rmats/rmats.py /usr/local/bin/rmats.py \
+    && rm "rmats_turbo_v${RMATS_VERSION}.tar.gz"
+
+# ── R 4.3.3 + Bioconductor (DESeq2, fgsea, reactome.db) ─────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    r-base=4.3.3-1 \
+    r-base-dev=4.3.3-1 \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG BIOC_DESEQ2_VERSION=1.42.0
+ARG BIOC_FGSEA_VERSION=1.28.0
+
+RUN Rscript -e "\
+    if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='https://cran.r-project.org'); \
+    BiocManager::install(version='3.18', ask=FALSE, update=FALSE); \
+    BiocManager::install(c('DESeq2', 'fgsea', 'reactome.db', 'org.Hs.eg.db', 'org.Mm.eg.db'), \
+                         ask=FALSE, update=FALSE)"
+
+# ── CellRanger 7.2.0 (LICENSED — manual download required) ───────────────────
+# Uncomment and place cellranger-7.2.0.tar.gz in the docker/ build context:
+#
+# COPY cellranger-7.2.0.tar.gz /tmp/
+# RUN tar -xzf /tmp/cellranger-7.2.0.tar.gz -C /opt/ \
+#     && ln -s /opt/cellranger-7.2.0/cellranger /usr/local/bin/cellranger \
+#     && rm /tmp/cellranger-7.2.0.tar.gz
+
+# Install agent_rnaseq Python package so tool wrappers are importable
+COPY pyproject.toml /app/
+WORKDIR /app
+RUN pip3 install --no-cache-dir -e "."
+COPY src/ /app/src/
+
+ENV PATH="/usr/local/bin:${PATH}"
+
+CMD ["/bin/bash"]

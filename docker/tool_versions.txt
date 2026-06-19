@@ -1,0 +1,22 @@
+# Bioinformatics tool version pins for Dockerfile.tools
+# Update this file and Dockerfile.tools together — they must stay in sync.
+# CI verifies that versions listed here appear in the Dockerfile.
+
+FastQC=0.12.1
+STAR=2.7.11b
+samtools=1.19.2
+GATK=4.5.0.0
+Salmon=1.10.3
+HTSeq=2.0.5
+RSeQC=5.0.1
+RSEM=1.3.3
+rMATS=4.1.2
+Nextflow=23.10.1
+R=4.3.3
+DESeq2=1.42.0
+fgsea=1.28.0
+reactome.db=1.86.0
+Scanpy=1.9.8
+# CellRanger must be downloaded manually from 10x Genomics (licensed software).
+# See Dockerfile.tools for the documented download step.
+CellRanger=7.2.0
