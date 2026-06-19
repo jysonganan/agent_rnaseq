@@ -125,6 +125,37 @@ Audit records must not be deleted or modified after creation. `UPDATE` on `Pipel
 
 ---
 
+## Rule 11 — Frontend Security
+
+### 11.1 API Key Storage
+- The API key is stored in `localStorage` under key `rnaseq_api_key`.
+- The key must never appear in: URL query parameters (except the WebSocket `?api_key=` param, which is sent over TLS in prod), HTML source, server-side logs, or error messages.
+- On receiving a 401 response from any endpoint, the frontend must clear the stored key and re-prompt the user.
+
+### 11.2 Content Rendering
+- All user-supplied text and agent-generated Markdown must be rendered through `react-markdown` with a restricted plugin set.
+- `dangerouslySetInnerHTML` is forbidden in the frontend codebase.
+- HTML passthrough in `react-markdown` must be disabled (`{ allowedElements: [...whitelist] }`); no `<script>`, `<iframe>` (except designated embed components), or event handler attributes are allowed in Markdown content.
+
+### 11.3 Input Validation
+- The chat input field does not accept or execute commands; it sends plain text to `POST /conversations/{id}/messages`.
+- The frontend never constructs `RunConfig` objects from raw user input — only the Orchestrator (server-side Pydantic validation) may do this.
+- Parameters in any form fields must be validated client-side against the same bounds defined in Rule 5 (threads, memory_gb, alpha, etc.) before submission, to provide early UX feedback. Server-side validation remains authoritative.
+
+### 11.4 iframe Sandboxing
+- `StreamlitEmbed` and `GenomeBrowserEmbed` iframes must have `sandbox="allow-scripts allow-same-origin"` (Streamlit) or `sandbox="allow-scripts allow-forms allow-same-origin"` (UCSC browser).
+- No `allow-top-navigation` or `allow-popups-to-escape-sandbox` on any iframe.
+
+### 11.5 WebSocket Authentication
+- The conversation stream WebSocket sends the API key as `?api_key=<key>` query parameter; this is the only acceptable exception to URL-param transmission and is restricted to WSS (TLS) in production.
+- The FastAPI WebSocket handler must validate the key against the `APIKey` table before subscribing to the Redis channel, identical to REST auth.
+
+### 11.6 No Credential Exposure in Agent Responses
+- Agent response content written to `ChatMessage.content` must not contain: file system paths, AWS credentials, internal IP addresses, or raw tool stderr.
+- The Orchestrator strips these before writing to DB (Rule 9 truncation applies to stderr passed to LLM; same sanitization applies to chat content).
+
+---
+
 ## Compliance Checklist (per implementation task)
 
 - [ ] Tool input Pydantic model defined and reviewed.

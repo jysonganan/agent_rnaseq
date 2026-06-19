@@ -495,6 +495,162 @@ Streams agent log messages in real time.
 
 ---
 
+### Conversations (Chat UI)
+
+#### `POST /conversations`
+Create a new conversation thread.
+
+**Request body**
+```json
+{ "title": "Optional override title" }
+```
+
+**Response 201**
+```json
+{ "id": "uuid", "title": "New conversation", "created_at": "..." }
+```
+
+#### `GET /conversations`
+List conversations for the authenticated API key.
+
+**Query params**: `limit` (default 20), `offset` (default 0)
+
+**Response 200**
+```json
+{
+  "total": 5,
+  "conversations": [
+    { "id": "uuid", "title": "DE analysis ctrl vs treatment", "updated_at": "..." }
+  ]
+}
+```
+
+#### `GET /conversations/{conversation_id}`
+Get conversation metadata.
+
+**Response 200**
+```json
+{ "id": "uuid", "title": "...", "created_at": "...", "updated_at": "..." }
+```
+**Response 404** — RFC 9457 if not found or not owned by caller's API key.
+
+#### `GET /conversations/{conversation_id}/messages`
+Get full message history for a conversation.
+
+**Query params**: `limit` (default 100), `offset` (default 0)
+
+**Response 200**
+```json
+{
+  "total": 12,
+  "messages": [
+    {
+      "id": "uuid",
+      "role": "user",
+      "content": "Run DE analysis comparing treatment vs control",
+      "run_id": null,
+      "tool_name": null,
+      "tool_status": null,
+      "created_at": "..."
+    },
+    {
+      "id": "uuid",
+      "role": "assistant",
+      "content": "I'll set up a bulk RNA-seq differential expression run ...",
+      "run_id": "uuid",
+      "tool_name": null,
+      "tool_status": null,
+      "created_at": "..."
+    },
+    {
+      "id": "uuid",
+      "role": "tool",
+      "content": "{\"tool\": \"run_deseq2\", \"status\": \"completed\", \"significant_genes\": 423}",
+      "run_id": "uuid",
+      "tool_name": "run_deseq2",
+      "tool_status": "completed",
+      "created_at": "..."
+    }
+  ]
+}
+```
+
+#### `POST /conversations/{conversation_id}/messages`
+Send a user message and trigger agent processing.
+
+**Request body**
+```json
+{ "content": "Run DE analysis comparing treatment vs control" }
+```
+
+**Response 202**
+```json
+{
+  "message_id": "uuid",
+  "run_id": "uuid",
+  "status": "processing"
+}
+```
+
+The endpoint:
+1. Persists a `ChatMessage` with `role=user`.
+2. Enqueues agent processing via arq.
+3. Returns immediately — agent response arrives via WebSocket stream.
+4. If the agent cannot infer a complete `RunConfig`, it responds with follow-up questions (via WS stream) without creating a run; `run_id` is `null` in that case.
+
+---
+
+### WebSocket: Conversation Stream
+
+#### `WS /ws/conversations/{conversation_id}/stream`
+Streams agent response tokens and pipeline events for a conversation.
+
+**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers).
+
+**Frame types**
+
+`token` — streaming LLM response token:
+```json
+{ "type": "token", "payload": { "message_id": "uuid", "token": "Setting up" } }
+```
+
+`tool_call` — tool invocation event:
+```json
+{
+  "type": "tool_call",
+  "payload": {
+    "message_id": "uuid",
+    "tool_name": "run_deseq2",
+    "status": "running",
+    "summary": null
+  }
+}
+```
+
+`stage_update` — pipeline stage status change:
+```json
+{
+  "type": "stage_update",
+  "payload": {
+    "run_id": "uuid",
+    "stage_name": "differential_expression",
+    "status": "completed"
+  }
+}
+```
+
+`done` — agent turn complete:
+```json
+{ "type": "done", "payload": { "message_id": "uuid", "run_id": "uuid" } }
+```
+
+`error` — agent or pipeline error:
+```json
+{ "type": "error", "payload": { "message": "Stage failed: alignment" } }
+```
+
+---
+
 ## Rate Limits
 - `POST /runs`: 10 requests/minute per API key.
 - All other endpoints: 120 requests/minute per API key.

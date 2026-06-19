@@ -569,6 +569,45 @@ Each fixture is a JSON serialization of the corresponding `ToolOutput` Pydantic 
 
 ---
 
+## 12. Chat Gateway Interface
+
+The chat endpoint does not introduce new deterministic tools. However, the `OrchestratorAgent` exposes a typed method for processing chat messages:
+
+### `OrchestratorAgent.dispatch_from_chat`
+
+Not a standalone tool function — this is a method on `OrchestratorAgent` that bridges the chat UI to the existing deterministic tool layer.
+
+**Input: `ChatDispatchInput`** (Pydantic model)
+```python
+conversation_id: str         # UUID of the Conversation record
+message_id: str              # UUID of the ChatMessage (role=user) already saved
+user_content: str            # Raw user natural-language message (max 4000 chars)
+api_key_id: str              # UUID of the authenticated APIKey
+```
+
+**Output: `ChatDispatchOutput`** (Pydantic model)
+```python
+run_id: str | None           # UUID of created AnalysisRun; None if agent asked follow-up Q
+assistant_message_id: str    # UUID of ChatMessage(role=assistant) created
+needs_clarification: bool    # True if agent could not fully resolve RunConfig
+clarification_prompt: str | None  # Follow-up question to display if needs_clarification=True
+```
+
+**Behaviour contract:**
+- If `user_content` is ambiguous, the method:
+  1. Creates a `ChatMessage(role=assistant)` with the clarification question.
+  2. Returns `ChatDispatchOutput(run_id=None, needs_clarification=True, ...)`.
+  3. Does NOT create an `AnalysisRun`.
+- If `user_content` resolves to a complete `RunConfig`:
+  1. Pydantic-validates the RunConfig (same rules as `POST /runs`).
+  2. Creates `AnalysisRun` and enqueues arq job.
+  3. Creates `ChatMessage(role=assistant)` acknowledging the run.
+  4. Returns `ChatDispatchOutput(run_id=<uuid>, needs_clarification=False, ...)`.
+- The method must never write LLM-generated numerical values to `AnalysisRun.run_config`; all numerical parameters come from Pydantic defaults or validated user-specified values.
+- Streaming events (tokens, tool calls, stage updates) are published to Redis pub/sub channel `conv:{conversation_id}` for the WebSocket handler to forward.
+
+---
+
 ## Versioning
 Tool contracts are versioned alongside the codebase.
 Any breaking change to an Input or Output schema requires a new task and review.

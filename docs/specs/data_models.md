@@ -220,6 +220,39 @@ Variant records from GATK.
 
 ---
 
+### 12. `Conversation`
+Chat conversation thread grouping a series of user and agent messages.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `title` | VARCHAR(256) | NOT NULL | Auto-generated from first user message (truncated to 60 chars) |
+| `created_by` | UUID | FK → APIKey, NOT NULL | Key that created the conversation |
+| `created_at` | TIMESTAMP | NOT NULL | |
+| `updated_at` | TIMESTAMP | NOT NULL | Updated on each new message |
+
+---
+
+### 13. `ChatMessage`
+Individual message within a conversation.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `conversation_id` | UUID | FK → Conversation, NOT NULL | Parent conversation |
+| `role` | ENUM | NOT NULL | `user`, `assistant`, `tool` |
+| `content` | TEXT | NOT NULL | Markdown text (user/assistant) or JSON summary (tool) |
+| `run_id` | UUID | FK → AnalysisRun | Set when message triggers or references a run |
+| `tool_name` | VARCHAR(64) | | For role=tool messages: which tool was called |
+| `tool_status` | ENUM | | `pending`, `running`, `completed`, `failed` |
+| `created_at` | TIMESTAMP | NOT NULL | |
+
+**Constraints:**
+- `content` for `role=assistant` must never contain raw numerical pipeline output — only LLM-generated prose summaries of validated `ToolOutput` objects.
+- `content` for `role=tool` is the JSON serialization of the corresponding `ToolOutput` Pydantic model summary.
+
+---
+
 ### 14. `APIKey`
 API key credentials for authentication.
 
@@ -288,4 +321,6 @@ ArtifactType:  fastqc_report | bam | bai | counts_matrix | vcf |
                html_report | streamlit_data | scrna_h5ad | scrna_umap | marker_genes
 Executor:      local | nextflow | aws_batch
 PassFail:      pass | warn | fail
+MessageRole:   user | assistant | tool
+ToolStatus:    pending | running | completed | failed
 ```
