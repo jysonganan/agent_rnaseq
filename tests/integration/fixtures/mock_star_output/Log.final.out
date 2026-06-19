@@ -1,0 +1,17 @@
+                                 Started job on |       Jun 18 2026 10:00:00
+                             Started mapping on |       Jun 18 2026 10:00:01
+                                    Finished on |       Jun 18 2026 10:00:02
+       Mapping speed, Million of reads per hour |       200.00
+
+                          Number of input reads |       10
+                      Average input read length |       100
+                                    UNIQUE READS:
+                   Uniquely mapped reads number |       9
+                        Uniquely mapped reads % |       90.00%
+          Average mapped length |       100.00
+               Number of splices: Total |       0
+    Number of reads mapped to multiple loci |       0
+         % of reads mapped to multiple loci |       0.00%
+              Number of reads unmapped: too many mismatches |       0
+                   Number of reads unmapped: too short |       1
+                       Number of reads unmapped: other |       0

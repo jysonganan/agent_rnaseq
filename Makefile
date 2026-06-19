@@ -1,4 +1,4 @@
-.PHONY: install test lint docker-up docker-down format typecheck
+.PHONY: install test test-integration lint docker-up docker-down format typecheck
 
 install:
 	pip install -e ".[dev]"
@@ -6,6 +6,9 @@ install:
 
 test:
 	pytest tests/ -v
+
+test-integration:
+	pytest tests/integration/ -v
 
 lint:
 	ruff check src/ tests/
