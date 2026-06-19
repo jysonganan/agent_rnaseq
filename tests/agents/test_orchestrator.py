@@ -56,15 +56,19 @@ class TestRunConfig:
     def test_lfc_threshold_negative_raises(self) -> None:
         with pytest.raises(ValidationError):
             RunConfig(
-                run_name="r", genome_id="g1",
-                stages=[StageName.qc], lfc_threshold=-0.1,
+                run_name="r",
+                genome_id="g1",
+                stages=[StageName.qc],
+                lfc_threshold=-0.1,
             )
 
     def test_lfc_threshold_above_max_raises(self) -> None:
         with pytest.raises(ValidationError):
             RunConfig(
-                run_name="r", genome_id="g1",
-                stages=[StageName.qc], lfc_threshold=5.1,
+                run_name="r",
+                genome_id="g1",
+                stages=[StageName.qc],
+                lfc_threshold=5.1,
             )
 
     def test_dry_run_false_by_default(self) -> None:
@@ -157,14 +161,16 @@ class TestParseIntent:
 
     def test_returns_parsed_dict(self) -> None:
         agent = _make_agent()
-        agent._client.chat.completions.create.return_value = self._mock_response({
-            "run_name": "my_run",
-            "genome_id": "g1",
-            "pipeline_type": "bulk_rnaseq",
-            "stages": ["qc", "alignment"],
-            "alpha": 0.05,
-            "lfc_threshold": 0.0,
-        })
+        agent._client.chat.completions.create.return_value = self._mock_response(
+            {
+                "run_name": "my_run",
+                "genome_id": "g1",
+                "pipeline_type": "bulk_rnaseq",
+                "stages": ["qc", "alignment"],
+                "alpha": 0.05,
+                "lfc_threshold": 0.0,
+            }
+        )
         with patch("src.agents.orchestrator.get_settings") as mock_cfg:
             mock_cfg.return_value.agent_llm_model = "gpt-4o"
             result = agent.parse_intent("Run bulk RNA-seq with GRCh38", _GENOMES)
@@ -174,8 +180,14 @@ class TestParseIntent:
     def test_no_real_api_call(self) -> None:
         agent = _make_agent()
         agent._client.chat.completions.create.return_value = self._mock_response(
-            {"run_name": "r", "genome_id": "g1", "pipeline_type": "bulk_rnaseq",
-             "stages": ["qc"], "alpha": 0.05, "lfc_threshold": 0.0}
+            {
+                "run_name": "r",
+                "genome_id": "g1",
+                "pipeline_type": "bulk_rnaseq",
+                "stages": ["qc"],
+                "alpha": 0.05,
+                "lfc_threshold": 0.0,
+            }
         )
         with patch("src.agents.orchestrator.get_settings") as mock_cfg:
             mock_cfg.return_value.agent_llm_model = "gpt-4o"
@@ -185,8 +197,14 @@ class TestParseIntent:
     def test_genome_list_included_in_prompt(self) -> None:
         agent = _make_agent()
         agent._client.chat.completions.create.return_value = self._mock_response(
-            {"run_name": "r", "genome_id": "g1", "pipeline_type": "bulk_rnaseq",
-             "stages": ["qc"], "alpha": 0.05, "lfc_threshold": 0.0}
+            {
+                "run_name": "r",
+                "genome_id": "g1",
+                "pipeline_type": "bulk_rnaseq",
+                "stages": ["qc"],
+                "alpha": 0.05,
+                "lfc_threshold": 0.0,
+            }
         )
         with patch("src.agents.orchestrator.get_settings") as mock_cfg:
             mock_cfg.return_value.agent_llm_model = "gpt-4o"
@@ -209,7 +227,8 @@ class TestDispatch:
 
     def test_qc_alignment_both_complete(self) -> None:
         cfg = RunConfig(
-            run_name="r1", genome_id="g1",
+            run_name="r1",
+            genome_id="g1",
             stages=[StageName.qc, StageName.alignment],
         )
         result = _make_agent().dispatch(cfg, run_id="run-002")
@@ -223,7 +242,8 @@ class TestDispatch:
 
     def test_stages_serialised_from_enum(self) -> None:
         cfg = RunConfig(
-            run_name="r1", genome_id="g1",
+            run_name="r1",
+            genome_id="g1",
             stages=[StageName.qc, StageName.alignment],
         )
         result = _make_agent().dispatch(cfg, run_id="run-003")
@@ -266,6 +286,7 @@ class TestResume:
 class TestAgentLLMModelConfig:
     def test_valid_model_gpt4o(self) -> None:
         from src.config import Settings
+
         s = Settings(
             openai_api_key="sk-test",
             api_key_bootstrap="test",
@@ -275,6 +296,7 @@ class TestAgentLLMModelConfig:
 
     def test_valid_model_gpt4o_mini(self) -> None:
         from src.config import Settings
+
         s = Settings(
             openai_api_key="sk-test",
             api_key_bootstrap="test",
@@ -284,6 +306,7 @@ class TestAgentLLMModelConfig:
 
     def test_invalid_model_raises_validation_error(self) -> None:
         from src.config import Settings
+
         with pytest.raises((ValidationError, Exception)):
             Settings(
                 openai_api_key="sk-test",
@@ -293,6 +316,7 @@ class TestAgentLLMModelConfig:
 
     def test_default_model_is_gpt4o(self) -> None:
         from src.config import Settings
+
         s = Settings(openai_api_key="sk-test", api_key_bootstrap="test")
         assert s.agent_llm_model == "gpt-4o"
 

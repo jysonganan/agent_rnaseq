@@ -67,7 +67,9 @@ class TestQuantificationMethodSelection:
     @patch("src.agents.specialists.quantification_agent.run_htseq_count", return_value=_HTSEQ_OUT)
     @patch("src.agents.specialists.quantification_agent.run_salmon_quant")
     @patch("src.agents.specialists.quantification_agent.run_rsem")
-    def test_star_htseq_does_not_call_salmon_or_rsem(self, mock_rsem, mock_salmon, mock_htseq, db) -> None:
+    def test_star_htseq_does_not_call_salmon_or_rsem(
+        self, mock_rsem, mock_salmon, mock_htseq, db
+    ) -> None:
         QuantificationAgent(db).run(_base_input("star_htseq"))
         mock_salmon.assert_not_called()
         mock_rsem.assert_not_called()

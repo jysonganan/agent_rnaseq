@@ -55,6 +55,7 @@ def umap_df() -> pd.DataFrame:
 
 def test_volcano_plot_returns_figure(de_df):
     import plotly.graph_objects as go
+
     fig = make_volcano_plot(de_df)
     assert isinstance(fig, go.Figure)
 
@@ -96,6 +97,7 @@ def test_volcano_not_significant_trace_present(de_df):
 
 def test_ma_plot_returns_figure(de_df):
     import plotly.graph_objects as go
+
     fig = make_ma_plot(de_df)
     assert isinstance(fig, go.Figure)
 
@@ -122,6 +124,7 @@ def test_ma_plot_total_points_equals_input_rows(de_df):
 
 def test_heatmap_returns_figure(de_df):
     import plotly.graph_objects as go
+
     fig = make_heatmap(de_df)
     assert isinstance(fig, go.Figure)
 
@@ -148,6 +151,7 @@ def test_heatmap_full_top_n_within_dataset(de_df):
 
 def test_pathway_bubble_returns_figure(gsea_df):
     import plotly.graph_objects as go
+
     fig = make_pathway_bubble(gsea_df, padj_cutoff=1.0)
     assert isinstance(fig, go.Figure)
 
@@ -175,6 +179,7 @@ def test_pathway_bubble_top_n_limits_pathways(gsea_df):
 
 def test_umap_plot_returns_figure(umap_df):
     import plotly.graph_objects as go
+
     fig = make_umap_plot(umap_df)
     assert isinstance(fig, go.Figure)
 
@@ -201,6 +206,7 @@ def test_umap_plot_total_points_equals_cells(umap_df):
 
 def test_qc_table_returns_figure(qc_metrics):
     import plotly.graph_objects as go
+
     fig = make_qc_table(qc_metrics)
     assert isinstance(fig, go.Figure)
 
@@ -212,6 +218,7 @@ def test_qc_table_has_traces(qc_metrics):
 
 def test_qc_table_empty_metrics_returns_figure():
     import plotly.graph_objects as go
+
     fig = make_qc_table({"samples": []})
     assert isinstance(fig, go.Figure)
 

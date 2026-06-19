@@ -32,12 +32,16 @@ _EVENT_TYPE_MAP: dict[str, SplicingEventType] = {
 
 class SplicingAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.splicing, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.splicing,
+            db,
+            llm_client=llm_client,
+            dry_run=dry_run,
+            mock_registry=mock_registry,
+        )
 
     def run(self, stage_input: SplicingStageInput) -> dict[str, Any]:  # type: ignore[override]
-        stage = self._start_stage(
-            stage_input["run_id"], StageName.splicing, "rmats"
-        )
+        stage = self._start_stage(stage_input["run_id"], StageName.splicing, "rmats")
         try:
             rmats_out = run_rmats(
                 RMATSInput(
@@ -50,6 +54,7 @@ class SplicingAgent(BaseSpecialistAgent):
             )
 
             import uuid as _uuid
+
             run_uuid = _uuid.UUID(stage_input["run_id"])
             contrast = stage_input["contrast"]
 

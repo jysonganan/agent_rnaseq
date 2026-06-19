@@ -42,9 +42,7 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     errors = exc.errors()
-    detail = "; ".join(
-        f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}" for e in errors
-    )
+    detail = "; ".join(f"{'.'.join(str(loc) for loc in e['loc'])}: {e['msg']}" for e in errors)
     return _problem(request, 422, "Unprocessable Entity", detail, "validation-error")
 
 

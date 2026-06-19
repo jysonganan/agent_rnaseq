@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -114,8 +115,6 @@ class TestScRNAAgentFailure:
 
     def test_no_cluster_rows_on_failure(self, mock_cr, mock_scanpy, db) -> None:
         mock_cr.side_effect = ToolExecutionError("cellranger", 1, "err", [])
-        try:
+        with contextlib.suppress(ToolExecutionError):
             scRNAAgent(db).run(_base_input())
-        except ToolExecutionError:
-            pass
         assert db.query(ScRNAClusterResult).count() == 0

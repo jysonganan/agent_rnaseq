@@ -27,11 +27,20 @@ class VariantStageInput(TypedDict):
 
 class VariantAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.variant_calling, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.variant_calling,
+            db,
+            llm_client=llm_client,
+            dry_run=dry_run,
+            mock_registry=mock_registry,
+        )
 
     def run(self, stage_input: VariantStageInput) -> dict[str, Any]:  # type: ignore[override]
         stage = self._start_stage(
-            stage_input["run_id"], StageName.variant_calling, "gatk", sample_id=stage_input["sample_id"]
+            stage_input["run_id"],
+            StageName.variant_calling,
+            "gatk",
+            sample_id=stage_input["sample_id"],
         )
         try:
             raw_vcf = stage_input["output_dir"] + "/raw.vcf.gz"
@@ -56,11 +65,15 @@ class VariantAgent(BaseSpecialistAgent):
                 )
             )
 
-            self._write_artifact(stage.id, stage_input["run_id"], ArtifactType.vcf, filter_out.filtered_vcf_path)
+            self._write_artifact(
+                stage.id, stage_input["run_id"], ArtifactType.vcf, filter_out.filtered_vcf_path
+            )
 
             tool_version = hc_out.tool_version
             self._complete_stage(stage, tool_version=tool_version)
-            return _make_stage_output("variant_calling", "completed", filter_out.model_dump(), tool_version)
+            return _make_stage_output(
+                "variant_calling", "completed", filter_out.model_dump(), tool_version
+            )
 
         except ToolExecutionError as exc:
             self._fail_stage(stage, str(exc))

@@ -198,9 +198,7 @@ class TestRunCellRangerCount:
     @patch("src.tools.scrna.cellranger._read_summary_stats", return_value=_STATS)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_fastqs_in_command(
-        self, mock_run, mock_makedirs, mock_stats, mock_version
-    ) -> None:
+    def test_fastqs_in_command(self, mock_run, mock_makedirs, mock_stats, mock_version) -> None:
         mock_run.return_value = self._mock_proc()
         run_cellranger_count(self._base_inp())
         called_cmd = mock_run.call_args[0][0]
@@ -276,9 +274,7 @@ class TestRunCellRangerCount:
     @patch("src.tools.scrna.cellranger.detect_version", return_value=None)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_timeout_raises_tool_timeout_error(
-        self, mock_run, mock_makedirs, mock_version
-    ) -> None:
+    def test_timeout_raises_tool_timeout_error(self, mock_run, mock_makedirs, mock_version) -> None:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["cellranger"], timeout=3600)
         with pytest.raises(ToolTimeoutError):
             run_cellranger_count(self._base_inp())

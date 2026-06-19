@@ -29,7 +29,9 @@ def _read_gsea_file(path: str) -> str:
 
 class GSEAAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.gsea, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.gsea, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry
+        )
 
     def run(self, stage_input: GSEAStageInput) -> dict[str, Any]:  # type: ignore[override]
         stage = self._start_stage(stage_input["run_id"], StageName.gsea, "reactome_gsea")

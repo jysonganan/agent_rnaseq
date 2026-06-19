@@ -18,8 +18,16 @@ from src.tools.scrna.scanpy_tool import (
 
 _CLUSTER_SUMMARY = ClusterSummary(
     n_clusters=8,
-    cells_per_cluster={"0": 350, "1": 290, "2": 400, "3": 210,
-                       "4": 180, "5": 320, "6": 150, "7": 100},
+    cells_per_cluster={
+        "0": 350,
+        "1": 290,
+        "2": 400,
+        "3": 210,
+        "4": 180,
+        "5": 320,
+        "6": 150,
+        "7": 100,
+    },
 )
 
 
@@ -218,9 +226,7 @@ class TestRunScanpyPipeline:
     @patch("src.tools.scrna.scanpy_tool.detect_version", return_value=None)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_timeout_raises_tool_timeout_error(
-        self, mock_run, mock_makedirs, mock_version
-    ) -> None:
+    def test_timeout_raises_tool_timeout_error(self, mock_run, mock_makedirs, mock_version) -> None:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["python"], timeout=3600)
         with pytest.raises(ToolTimeoutError):
             run_scanpy_pipeline(self._base_inp())
@@ -258,13 +264,20 @@ class TestScanpyPipelineCLI:
     def test_custom_params_parsed(self) -> None:
         from src.scripts.scanpy_pipeline import parse_args
 
-        args = parse_args([
-            "--matrix-dir", "/m",
-            "--output-dir", "/o",
-            "--min-genes", "300",
-            "--max-pct-mt", "25.0",
-            "--n-neighbors", "20",
-        ])
+        args = parse_args(
+            [
+                "--matrix-dir",
+                "/m",
+                "--output-dir",
+                "/o",
+                "--min-genes",
+                "300",
+                "--max-pct-mt",
+                "25.0",
+                "--n-neighbors",
+                "20",
+            ]
+        )
         assert args.min_genes == 300
         assert args.max_pct_mt == pytest.approx(25.0)
         assert args.n_neighbors == 20

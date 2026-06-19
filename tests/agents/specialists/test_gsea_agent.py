@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -102,8 +103,6 @@ class TestGSEAAgentFailure:
 
     def test_no_gsea_rows_on_failure(self, mock_gsea, mock_read, db) -> None:
         mock_gsea.side_effect = ToolExecutionError("reactome_gsea", 1, "R error", [])
-        try:
+        with contextlib.suppress(ToolExecutionError):
             GSEAAgent(db).run(_base_input())
-        except ToolExecutionError:
-            pass
         assert db.query(GSEAResult).count() == 0

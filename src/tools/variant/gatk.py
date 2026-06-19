@@ -64,10 +64,14 @@ def run_gatk_haplotypecaller(inp: GATKHaplotypeCallerInput) -> GATKHaplotypeCall
     version = detect_version(["gatk", "--version"], "gatk")
 
     cmd = [
-        "gatk", "HaplotypeCaller",
-        "-R", inp.reference_fasta,
-        "-I", inp.bam_path,
-        "-O", inp.output_vcf_path,
+        "gatk",
+        "HaplotypeCaller",
+        "-R",
+        inp.reference_fasta,
+        "-I",
+        inp.bam_path,
+        "-O",
+        inp.output_vcf_path,
     ]
     if inp.dbsnp_path:
         cmd += ["--dbsnp", inp.dbsnp_path]
@@ -98,14 +102,22 @@ def run_gatk_variant_filter(inp: GATKVariantFilterInput) -> GATKVariantFilterOut
     version = detect_version(["gatk", "--version"], "gatk")
 
     cmd = [
-        "gatk", "VariantFiltration",
-        "-R", inp.reference_fasta,
-        "-V", inp.vcf_path,
-        "-O", inp.output_vcf_path,
-        "--filter-expression", inp.snp_filter_expression,
-        "--filter-name", "SNPFilter",
-        "--filter-expression", inp.indel_filter_expression,
-        "--filter-name", "IndelFilter",
+        "gatk",
+        "VariantFiltration",
+        "-R",
+        inp.reference_fasta,
+        "-V",
+        inp.vcf_path,
+        "-O",
+        inp.output_vcf_path,
+        "--filter-expression",
+        inp.snp_filter_expression,
+        "--filter-name",
+        "SNPFilter",
+        "--filter-expression",
+        inp.indel_filter_expression,
+        "--filter-name",
+        "IndelFilter",
     ]
 
     run_subprocess(cmd, tool_name="gatk")

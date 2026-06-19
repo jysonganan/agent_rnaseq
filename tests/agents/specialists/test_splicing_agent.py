@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -72,6 +73,7 @@ class TestSplicingAgentSuccess:
 
     def test_artifact_written(self, mock_rmats, db) -> None:
         from src.db.models.run import Artifact
+
         SplicingAgent(db).run(_base_input())
         artifacts = db.query(Artifact).all()
         assert any("summary.txt" in a.path for a in artifacts)
@@ -88,8 +90,6 @@ class TestSplicingAgentFailure:
 
     def test_no_rows_on_failure(self, mock_rmats, db) -> None:
         mock_rmats.side_effect = ToolExecutionError("rmats", 1, "err", [])
-        try:
+        with contextlib.suppress(ToolExecutionError):
             SplicingAgent(db).run(_base_input())
-        except ToolExecutionError:
-            pass
         assert db.query(SplicingResult).count() == 0

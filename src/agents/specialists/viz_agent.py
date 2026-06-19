@@ -25,7 +25,13 @@ class VizStageInput(TypedDict):
 
 class VizAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.visualization, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.visualization,
+            db,
+            llm_client=llm_client,
+            dry_run=dry_run,
+            mock_registry=mock_registry,
+        )
 
     def run(self, stage_input: VizStageInput) -> dict[str, Any]:  # type: ignore[override]
         stage = self._start_stage(stage_input["run_id"], StageName.visualization, "streamlit")
@@ -51,14 +57,21 @@ class VizAgent(BaseSpecialistAgent):
             )
 
             self._write_artifact(
-                stage.id, stage_input["run_id"], ArtifactType.streamlit_data, streamlit_out.manifest_path
+                stage.id,
+                stage_input["run_id"],
+                ArtifactType.streamlit_data,
+                streamlit_out.manifest_path,
             )
             for bw_path in ucsc_out.bigwig_paths:
-                self._write_artifact(stage.id, stage_input["run_id"], ArtifactType.ucsc_track, bw_path)
+                self._write_artifact(
+                    stage.id, stage_input["run_id"], ArtifactType.ucsc_track, bw_path
+                )
 
             tool_version = streamlit_out.tool_version
             self._complete_stage(stage, tool_version=tool_version)
-            return _make_stage_output("visualization", "completed", streamlit_out.model_dump(), tool_version)
+            return _make_stage_output(
+                "visualization", "completed", streamlit_out.model_dump(), tool_version
+            )
 
         except ToolExecutionError as exc:
             self._fail_stage(stage, str(exc))

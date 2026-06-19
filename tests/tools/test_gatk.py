@@ -236,9 +236,7 @@ class TestRunGATKHaplotypeCaller:
     @patch("src.tools.variant.gatk.detect_version", return_value=None)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_timeout_raises_tool_timeout_error(
-        self, mock_run, mock_makedirs, mock_version
-    ) -> None:
+    def test_timeout_raises_tool_timeout_error(self, mock_run, mock_makedirs, mock_version) -> None:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["gatk"], timeout=3600)
         with pytest.raises(ToolTimeoutError):
             run_gatk_haplotypecaller(self._base_inp())
@@ -340,9 +338,7 @@ class TestRunGATKVariantFilter:
     @patch("src.tools.variant.gatk.detect_version", return_value=None)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_timeout_raises_tool_timeout_error(
-        self, mock_run, mock_makedirs, mock_version
-    ) -> None:
+    def test_timeout_raises_tool_timeout_error(self, mock_run, mock_makedirs, mock_version) -> None:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["gatk"], timeout=3600)
         with pytest.raises(ToolTimeoutError):
             run_gatk_variant_filter(self._base_inp())

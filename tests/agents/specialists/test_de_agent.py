@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from unittest.mock import patch
 
 import pytest
@@ -42,7 +43,9 @@ def _base_input(**kwargs) -> DEStageInput:
         run_id=RUN_ID,
         counts_matrix_path="/data/counts.csv",
         sample_metadata_path="/data/metadata.csv",
-        contrasts=[{"name": "treatment_vs_control", "numerator": "treatment", "denominator": "control"}],
+        contrasts=[
+            {"name": "treatment_vs_control", "numerator": "treatment", "denominator": "control"}
+        ],
         output_dir="/out/de",
         alpha=0.05,
         lfc_threshold=0.0,
@@ -109,8 +112,6 @@ class TestDEAgentFailure:
 
     def test_no_deg_rows_on_failure(self, mock_deseq2, mock_read, db) -> None:
         mock_deseq2.side_effect = ToolExecutionError("deseq2", 1, "R error", [])
-        try:
+        with contextlib.suppress(ToolExecutionError):
             DEAgent(db).run(_base_input())
-        except ToolExecutionError:
-            pass
         assert db.query(DEGResult).count() == 0

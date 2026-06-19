@@ -61,13 +61,20 @@ def run_scanpy_pipeline(inp: ScanpyInput) -> ScanpyOutput:
     cmd = [
         "python",
         inp.script_path,
-        "--matrix-dir", inp.matrix_dir,
-        "--output-dir", inp.output_dir,
-        "--min-genes", str(inp.min_genes),
-        "--min-cells", str(inp.min_cells),
-        "--max-pct-mt", str(inp.max_pct_mt),
-        "--n-top-genes", str(inp.n_top_genes),
-        "--n-neighbors", str(inp.n_neighbors),
+        "--matrix-dir",
+        inp.matrix_dir,
+        "--output-dir",
+        inp.output_dir,
+        "--min-genes",
+        str(inp.min_genes),
+        "--min-cells",
+        str(inp.min_cells),
+        "--max-pct-mt",
+        str(inp.max_pct_mt),
+        "--n-top-genes",
+        str(inp.n_top_genes),
+        "--n-neighbors",
+        str(inp.n_neighbors),
     ]
     run_subprocess(cmd, tool_name="scanpy")
 

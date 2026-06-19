@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import streamlit as st
-
 from src.streamlit.components.pathway_bubble import make_pathway_bubble
 from src.streamlit.data_loader import load_gsea_results, load_manifest
 
@@ -27,8 +26,7 @@ def render(data_dir: str) -> None:
     df = load_gsea_results(str(Path(data_dir) / gsea_rel))
 
     # ── Sidebar filters ───────────────────────────────────────────────────────
-    padj_cutoff = st.sidebar.slider("padj cutoff", 0.001, 0.5, 0.05, 0.001,
-                                    format="%.3f")
+    padj_cutoff = st.sidebar.slider("padj cutoff", 0.001, 0.5, 0.05, 0.001, format="%.3f")
     top_n = st.sidebar.slider("Top N pathways", 5, 50, 20, 5)
 
     sig = df[df["padj"] <= padj_cutoff]

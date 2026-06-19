@@ -75,12 +75,18 @@ def run_rmats(inp: RMATSInput) -> RMATSOutput:
 
     cmd = [
         "rmats.py",
-        "--b1", b1_file,
-        "--b2", b2_file,
-        "--gtf", inp.gtf_path,
-        "--od", inp.output_dir,
-        "--readLength", str(inp.read_length),
-        "-t", "paired" if inp.paired_stats else "single",
+        "--b1",
+        b1_file,
+        "--b2",
+        b2_file,
+        "--gtf",
+        inp.gtf_path,
+        "--od",
+        inp.output_dir,
+        "--readLength",
+        str(inp.read_length),
+        "-t",
+        "paired" if inp.paired_stats else "single",
     ]
     if inp.novelSS:
         cmd.append("--novelSS")

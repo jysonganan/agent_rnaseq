@@ -107,9 +107,7 @@ def cancel_run(
     if run is None:
         raise HTTPException(status_code=404, detail=f"Run {run_id!s} not found")
     if run.status not in (RunStatus.pending, RunStatus.running):
-        raise HTTPException(
-            status_code=409, detail=f"Cannot cancel run in status {run.status}"
-        )
+        raise HTTPException(status_code=409, detail=f"Cannot cancel run in status {run.status}")
     run.status = RunStatus.cancelled
     db.commit()
     return CancelRunOut(run_id=run.id, status=RunStatus.cancelled)

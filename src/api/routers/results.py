@@ -42,10 +42,7 @@ def _require_run(run_id: uuid.UUID, db: Session) -> AnalysisRun:
 
 
 def _stage_ids(run_id: uuid.UUID, db: Session) -> list[uuid.UUID]:
-    return [
-        s.id
-        for s in db.query(PipelineStage).filter(PipelineStage.run_id == run_id).all()
-    ]
+    return [s.id for s in db.query(PipelineStage).filter(PipelineStage.run_id == run_id).all()]
 
 
 @router.get("/runs/{run_id}/qc", response_model=QCMetricsOut)

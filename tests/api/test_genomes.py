@@ -12,17 +12,23 @@ class TestListGenomes:
         r = client.get("/api/v1/genomes")
         assert r.status_code == 401
 
-    def test_returns_200_with_seed(self, client: TestClient, seed_data: dict, auth_headers: dict) -> None:
+    def test_returns_200_with_seed(
+        self, client: TestClient, seed_data: dict, auth_headers: dict
+    ) -> None:
         r = client.get("/api/v1/genomes", headers=auth_headers)
         assert r.status_code == 200
 
-    def test_seed_genome_in_list(self, client: TestClient, seed_data: dict, auth_headers: dict) -> None:
+    def test_seed_genome_in_list(
+        self, client: TestClient, seed_data: dict, auth_headers: dict
+    ) -> None:
         r = client.get("/api/v1/genomes", headers=auth_headers)
         body = r.json()
         assert body["total"] == 1
         assert body["items"][0]["name"] == "hg38"
 
-    def test_pagination_fields_present(self, client: TestClient, seed_data: dict, auth_headers: dict) -> None:
+    def test_pagination_fields_present(
+        self, client: TestClient, seed_data: dict, auth_headers: dict
+    ) -> None:
         r = client.get("/api/v1/genomes?limit=10&offset=0", headers=auth_headers)
         body = r.json()
         assert "limit" in body
@@ -48,11 +54,15 @@ class TestCreateGenome:
 
 
 class TestGetGenome:
-    def test_unknown_genome_returns_404(self, client: TestClient, seed_data: dict, auth_headers: dict) -> None:
+    def test_unknown_genome_returns_404(
+        self, client: TestClient, seed_data: dict, auth_headers: dict
+    ) -> None:
         r = client.get(f"/api/v1/genomes/{uuid.uuid4()}", headers=auth_headers)
         assert r.status_code == 404
 
-    def test_returns_genome_by_id(self, client: TestClient, seed_data: dict, auth_headers: dict) -> None:
+    def test_returns_genome_by_id(
+        self, client: TestClient, seed_data: dict, auth_headers: dict
+    ) -> None:
         r = client.get(f"/api/v1/genomes/{seed_data['genome_id']}", headers=auth_headers)
         assert r.status_code == 200
         assert r.json()["name"] == "hg38"

@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import streamlit as st
-
 from src.streamlit.components.qc_metrics_table import make_qc_table
 from src.streamlit.data_loader import load_manifest, load_qc_metrics
 

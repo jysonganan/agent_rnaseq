@@ -15,7 +15,7 @@ from src.tools.quantification.salmon import SalmonQuantInput, run_salmon_quant
 class QuantStageInput(TypedDict):
     run_id: str
     sample_id: str
-    quantification_method: str   # "star_htseq" | "salmon" | "rsem"
+    quantification_method: str  # "star_htseq" | "salmon" | "rsem"
     output_dir: str
     # htseq / rsem
     bam_path: str | None
@@ -30,13 +30,22 @@ class QuantStageInput(TypedDict):
 
 class QuantificationAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.quantification, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.quantification,
+            db,
+            llm_client=llm_client,
+            dry_run=dry_run,
+            mock_registry=mock_registry,
+        )
 
     def run(self, stage_input: QuantStageInput) -> dict[str, Any]:  # type: ignore[override]
         method = stage_input["quantification_method"]
         tool_name = {"star_htseq": "htseq", "salmon": "salmon", "rsem": "rsem"}.get(method, method)
         stage = self._start_stage(
-            stage_input["run_id"], StageName.quantification, tool_name, sample_id=stage_input["sample_id"]
+            stage_input["run_id"],
+            StageName.quantification,
+            tool_name,
+            sample_id=stage_input["sample_id"],
         )
         try:
             if method == "star_htseq":
@@ -76,7 +85,9 @@ class QuantificationAgent(BaseSpecialistAgent):
                 tool_version = out.tool_version
                 output_dict = out.model_dump()
 
-            self._write_artifact(stage.id, stage_input["run_id"], ArtifactType.counts_matrix, counts_path)
+            self._write_artifact(
+                stage.id, stage_input["run_id"], ArtifactType.counts_matrix, counts_path
+            )
             self._complete_stage(stage, tool_version=tool_version)
             return _make_stage_output("quantification", "completed", output_dict, tool_version)
 

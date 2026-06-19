@@ -92,7 +92,10 @@ class TestComputeContrastSummary:
 
     def test_counts_sum_to_total(self) -> None:
         summary = compute_contrast_summary(self._results(), alpha=0.05)
-        assert summary.upregulated + summary.downregulated + summary.not_significant == summary.total_genes
+        assert (
+            summary.upregulated + summary.downregulated + summary.not_significant
+            == summary.total_genes
+        )
 
     def test_strict_alpha_leaves_fewer_significant(self) -> None:
         # alpha=0.0001: GENE1 (padj=1e-6 up), GENE2 (padj=5e-6 down), GENE4 (padj=1.8e-6 up) pass
@@ -102,8 +105,17 @@ class TestComputeContrastSummary:
         assert summary.downregulated == 1
 
     def test_na_padj_counted_as_not_significant(self) -> None:
-        results = [DEGResult(gene_id="G", base_mean=10.0, log2_fold_change=5.0,
-                             lfc_se=None, stat=None, pvalue=None, padj=None)]
+        results = [
+            DEGResult(
+                gene_id="G",
+                base_mean=10.0,
+                log2_fold_change=5.0,
+                lfc_se=None,
+                stat=None,
+                pvalue=None,
+                padj=None,
+            )
+        ]
         summary = compute_contrast_summary(results, alpha=0.05)
         assert summary.not_significant == 1
         assert summary.upregulated == 0
@@ -122,7 +134,9 @@ class TestDESeq2Input:
         return DESeq2Input(
             counts_matrix_path="/data/counts.csv",
             sample_metadata_path="/data/meta.csv",
-            contrasts=[DEContrast(name="treated_vs_ctrl", numerator="treated", denominator="control")],
+            contrasts=[
+                DEContrast(name="treated_vs_ctrl", numerator="treated", denominator="control")
+            ],
             output_dir="/out/de",
             r_script_path="/r/deseq2_analysis.R",
             **kwargs,
@@ -203,7 +217,9 @@ class TestRunDeseq2:
         return DESeq2Input(
             counts_matrix_path="/data/counts.csv",
             sample_metadata_path="/data/meta.csv",
-            contrasts=[DEContrast(name="treated_vs_ctrl", numerator="treated", denominator="control")],
+            contrasts=[
+                DEContrast(name="treated_vs_ctrl", numerator="treated", denominator="control")
+            ],
             output_dir="/out/de",
             r_script_path="/r/deseq2_analysis.R",
             **kwargs,
@@ -333,9 +349,7 @@ class TestRunDeseq2:
     @patch("src.tools.de.deseq2.detect_version", return_value=None)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_timeout_raises_tool_timeout_error(
-        self, mock_run, mock_makedirs, mock_version
-    ) -> None:
+    def test_timeout_raises_tool_timeout_error(self, mock_run, mock_makedirs, mock_version) -> None:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["Rscript"], timeout=3600)
         with pytest.raises(ToolTimeoutError):
             run_deseq2(self._base_inp())

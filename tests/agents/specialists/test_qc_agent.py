@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import contextlib
+from unittest.mock import patch
 
 import pytest
 
@@ -91,6 +92,7 @@ class TestQCAgentSuccess:
         mock_fastqc.return_value = _mock_fastqc_out()
         mock_multiqc.return_value = _mock_multiqc_out()
         from src.db.models.run import Artifact
+
         QCAgent(db).run(_base_input())
         artifacts = db.query(Artifact).all()
         assert len(artifacts) >= 1
@@ -128,8 +130,6 @@ class TestQCAgentFailure:
 
     def test_no_metrics_on_failure(self, mock_fastqc, mock_multiqc, db) -> None:
         mock_fastqc.side_effect = ToolExecutionError("fastqc", 1, "err", [])
-        try:
+        with contextlib.suppress(ToolExecutionError):
             QCAgent(db).run(_base_input())
-        except ToolExecutionError:
-            pass
         assert db.query(QCMetric).count() == 0

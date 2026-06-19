@@ -57,6 +57,7 @@ def test_load_manifest_de_results_filename():
 
 def test_load_de_results_returns_dataframe():
     import pandas as pd
+
     df = load_de_results(str(FIXTURES / "de_results.csv"))
     assert isinstance(df, pd.DataFrame)
 

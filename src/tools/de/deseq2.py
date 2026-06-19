@@ -51,9 +51,7 @@ def _read_contrast_summary(
             results = parse_deseq2_results(fh.read())
         return compute_contrast_summary(results, alpha)
     except OSError:
-        return DEContrastSummary(
-            total_genes=0, upregulated=0, downregulated=0, not_significant=0
-        )
+        return DEContrastSummary(total_genes=0, upregulated=0, downregulated=0, not_significant=0)
 
 
 @tool_call

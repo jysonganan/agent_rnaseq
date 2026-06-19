@@ -28,9 +28,18 @@ def _state(
 
 class TestAllPipelineStages:
     def test_contains_expected_stages(self) -> None:
-        for stage in ("qc", "alignment", "quantification", "variant_calling",
-                      "splicing", "differential_expression", "gsea",
-                      "scrna_seq", "visualization", "report"):
+        for stage in (
+            "qc",
+            "alignment",
+            "quantification",
+            "variant_calling",
+            "splicing",
+            "differential_expression",
+            "gsea",
+            "scrna_seq",
+            "visualization",
+            "report",
+        ):
             assert stage in ALL_PIPELINE_STAGES
 
     def test_at_least_nine_stages(self) -> None:
@@ -79,9 +88,7 @@ class TestBuildPipelineGraph:
         assert "alignment" not in result["completed_stages"]
 
     def test_three_stage_pipeline_completes_in_order(self, graph) -> None:
-        result = graph.invoke(
-            _state(["qc", "alignment", "quantification"], [])
-        )
+        result = graph.invoke(_state(["qc", "alignment", "quantification"], []))
         assert result["completed_stages"] == ["qc", "alignment", "quantification"]
 
     def test_interrupted_graph_resumes_from_checkpoint(self, graph) -> None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 
 import streamlit as st
-
 from src.streamlit.pages import (
     differential_expression,
     pathway_enrichment,

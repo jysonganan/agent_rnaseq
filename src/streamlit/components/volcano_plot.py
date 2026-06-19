@@ -54,9 +54,7 @@ def make_volcano_plot(
 
     fig.add_vline(x=lfc_cutoff, line_dash="dot", line_color="gray", opacity=0.5)
     fig.add_vline(x=-lfc_cutoff, line_dash="dot", line_color="gray", opacity=0.5)
-    fig.add_hline(
-        y=-np.log10(padj_cutoff), line_dash="dot", line_color="gray", opacity=0.5
-    )
+    fig.add_hline(y=-np.log10(padj_cutoff), line_dash="dot", line_color="gray", opacity=0.5)
 
     fig.update_layout(
         title="Volcano Plot",

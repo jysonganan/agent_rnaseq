@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
-import streamlit as st
 
+import streamlit as st
 from src.streamlit.components.umap_plot import make_umap_plot
 from src.streamlit.data_loader import load_manifest
 
@@ -28,8 +28,11 @@ def render(data_dir: str) -> None:
     df = pd.read_csv(str(Path(data_dir) / sc_rel))
 
     colour_opts = df.columns.tolist()
-    colour_col = st.sidebar.selectbox("Colour by", colour_opts,
-                                      index=colour_opts.index("cluster") if "cluster" in colour_opts else 0)
+    colour_col = st.sidebar.selectbox(
+        "Colour by",
+        colour_opts,
+        index=colour_opts.index("cluster") if "cluster" in colour_opts else 0,
+    )
 
     c1, c2 = st.columns(2)
     c1.metric("Total cells", len(df))

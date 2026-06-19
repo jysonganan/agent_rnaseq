@@ -21,8 +21,8 @@ STAGE_DEPENDENCIES: dict[str, list[str]] = {
     "differential_expression": ["quantification"],
     "gsea": ["differential_expression"],
     "scrna_seq": [],
-    "visualization": [],   # special: at least one of qc/de/gsea — checked separately
-    "report": [],          # special: at least one upstream — checked separately
+    "visualization": [],  # special: at least one of qc/de/gsea — checked separately
+    "report": [],  # special: at least one upstream — checked separately
 }
 
 _VISUALIZATION_REQUIRES_ONE_OF: frozenset[str] = frozenset(

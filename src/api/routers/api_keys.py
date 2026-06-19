@@ -42,9 +42,7 @@ def list_api_keys(
     _: APIKey = Depends(require_api_key),
 ) -> APIKeyListOut:
     items = db.query(APIKey).all()
-    return APIKeyListOut(
-        items=[APIKeyOut.model_validate(k) for k in items], total=len(items)
-    )
+    return APIKeyListOut(items=[APIKeyOut.model_validate(k) for k in items], total=len(items))
 
 
 @router.delete("/{key_id}", status_code=204)

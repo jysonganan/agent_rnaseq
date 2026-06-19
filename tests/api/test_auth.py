@@ -20,9 +20,7 @@ class TestAuthRequired:
         assert "detail" in body
 
     def test_invalid_key_returns_401(self, client: TestClient, seed_data: dict) -> None:
-        r = client.get(
-            "/api/v1/genomes", headers={"Authorization": "Bearer bad-key-xxxx"}
-        )
+        r = client.get("/api/v1/genomes", headers={"Authorization": "Bearer bad-key-xxxx"})
         assert r.status_code == 401
 
     def test_health_no_auth_required(self, client: TestClient) -> None:

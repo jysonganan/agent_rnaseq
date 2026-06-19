@@ -17,7 +17,7 @@ class RunState(TypedDict):
 
     run_id: str
     run_config: dict
-    stages: list[str]            # ordered planned stages
+    stages: list[str]  # ordered planned stages
     completed_stages: list[str]
     failed_stage: str | None
     stage_outputs: dict[str, dict]

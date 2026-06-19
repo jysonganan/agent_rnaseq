@@ -236,9 +236,7 @@ class TestRunReactomeGsea:
     @patch("src.tools.gsea.reactome._count_significant_gsea", return_value=_SIG_COUNT)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_nperm_passed_as_arg(
-        self, mock_run, mock_makedirs, mock_count, mock_version
-    ) -> None:
+    def test_nperm_passed_as_arg(self, mock_run, mock_makedirs, mock_count, mock_version) -> None:
         mock_run.return_value = self._mock_proc()
         run_reactome_gsea(self._base_inp(nperm=500))
         called_cmd = mock_run.call_args[0][0]
@@ -280,9 +278,7 @@ class TestRunReactomeGsea:
     @patch("src.tools.gsea.reactome.detect_version", return_value=None)
     @patch("os.makedirs")
     @patch("src.tools.base.subprocess.run")
-    def test_timeout_raises_tool_timeout_error(
-        self, mock_run, mock_makedirs, mock_version
-    ) -> None:
+    def test_timeout_raises_tool_timeout_error(self, mock_run, mock_makedirs, mock_version) -> None:
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["Rscript"], timeout=3600)
         with pytest.raises(ToolTimeoutError):
             run_reactome_gsea(self._base_inp())

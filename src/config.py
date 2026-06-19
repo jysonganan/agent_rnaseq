@@ -35,9 +35,7 @@ class Settings(BaseSettings):
     def _validate_agent_llm_model(cls, v: str) -> str:
         allowed = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo"}
         if v not in allowed:
-            raise ValueError(
-                f"AGENT_LLM_MODEL must be one of {sorted(allowed)}, got '{v}'"
-            )
+            raise ValueError(f"AGENT_LLM_MODEL must be one of {sorted(allowed)}, got '{v}'")
         return v
 
     # ── Output storage ────────────────────────────────────────────────────────

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
-import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -96,10 +96,8 @@ def client(db_engine) -> TestClient:  # type: ignore[misc]
 def reset_rate_limiter() -> None:  # type: ignore[misc]
     from src.api.rate_limit import limiter
 
-    try:
+    with contextlib.suppress(Exception):
         limiter._storage.reset()
-    except Exception:
-        pass
     yield  # type: ignore[misc]
 
 

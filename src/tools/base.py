@@ -16,6 +16,7 @@ class ExecutionBackend(enum.StrEnum):
     nextflow = "nextflow"
     aws_batch = "aws_batch"
 
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 3600  # 1 hour

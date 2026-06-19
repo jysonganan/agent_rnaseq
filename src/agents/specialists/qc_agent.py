@@ -25,14 +25,14 @@ class QCStageInput(TypedDict):
 
 
 def _to_pass_fail(value: str) -> PassFail | None:
-    return {"PASS": PassFail.pass_, "WARN": PassFail.warn, "FAIL": PassFail.fail}.get(
-        value.upper()
-    )
+    return {"PASS": PassFail.pass_, "WARN": PassFail.warn, "FAIL": PassFail.fail}.get(value.upper())
 
 
 class QCAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.qc, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.qc, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry
+        )
 
     def run(self, stage_input: QCStageInput) -> dict[str, Any]:  # type: ignore[override]
         stage = self._start_stage(
@@ -59,7 +59,9 @@ class QCAgent(BaseSpecialistAgent):
                 )
 
             for path in fastqc_out.report_html_paths:
-                self._write_artifact(stage.id, stage_input["run_id"], ArtifactType.fastqc_report, path)
+                self._write_artifact(
+                    stage.id, stage_input["run_id"], ArtifactType.fastqc_report, path
+                )
 
             if stage_input.get("bam_path"):
                 run_rseqc(
@@ -80,7 +82,9 @@ class QCAgent(BaseSpecialistAgent):
 
             self.db.flush()
             self._complete_stage(stage, tool_version=fastqc_out.tool_version)
-            return _make_stage_output("qc", "completed", fastqc_out.model_dump(), fastqc_out.tool_version)
+            return _make_stage_output(
+                "qc", "completed", fastqc_out.model_dump(), fastqc_out.tool_version
+            )
 
         except ToolExecutionError as exc:
             self._fail_stage(stage, str(exc))

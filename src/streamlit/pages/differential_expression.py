@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import streamlit as st
-
 from src.streamlit.components.heatmap import make_heatmap
 from src.streamlit.components.ma_plot import make_ma_plot
 from src.streamlit.components.volcano_plot import make_volcano_plot
@@ -34,8 +33,7 @@ def render(data_dir: str) -> None:
     if "contrast" in df.columns:
         df = df[df["contrast"] == contrast]
 
-    padj_cutoff = st.sidebar.slider("padj cutoff", 0.001, 0.5, 0.05, 0.001,
-                                    format="%.3f")
+    padj_cutoff = st.sidebar.slider("padj cutoff", 0.001, 0.5, 0.05, 0.001, format="%.3f")
     lfc_cutoff = st.sidebar.slider("LFC cutoff (|log₂FC|)", 0.0, 4.0, 1.0, 0.1)
     top_n = st.sidebar.slider("Top N genes (heatmap)", 10, 100, 50, 10)
 

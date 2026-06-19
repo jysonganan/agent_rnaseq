@@ -42,9 +42,7 @@ def make_pathway_bubble(
             ),
             text=sig["pathway"],
             hovertemplate=(
-                "<b>%{text}</b><br>"
-                "NES=%{x:.2f}<br>"
-                "padj=%{customdata:.3g}<extra></extra>"
+                "<b>%{text}</b><br>NES=%{x:.2f}<br>padj=%{customdata:.3g}<extra></extra>"
             ),
             customdata=sig["padj"],
         )

@@ -6,9 +6,9 @@ from typing import Any, TypedDict
 
 from src.agents.specialists._base import BaseSpecialistAgent, _make_stage_output
 from src.db.enums import ArtifactType, StageName
-from src.tools.base import ToolExecutionError
 from src.tools.alignment.samtools import SamtoolsInput, run_samtools_sort_index
 from src.tools.alignment.star import STARAlignInput, run_star_align
+from src.tools.base import ToolExecutionError
 
 
 class AlignmentStageInput(TypedDict):
@@ -23,7 +23,13 @@ class AlignmentStageInput(TypedDict):
 
 class AlignmentAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.alignment, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.alignment,
+            db,
+            llm_client=llm_client,
+            dry_run=dry_run,
+            mock_registry=mock_registry,
+        )
 
     def run(self, stage_input: AlignmentStageInput) -> dict[str, Any]:  # type: ignore[override]
         stage = self._start_stage(
@@ -47,8 +53,12 @@ class AlignmentAgent(BaseSpecialistAgent):
                 )
             )
 
-            self._write_artifact(stage.id, stage_input["run_id"], ArtifactType.bam, samtools_out.sorted_bam_path)
-            self._write_artifact(stage.id, stage_input["run_id"], ArtifactType.bai, samtools_out.bai_path)
+            self._write_artifact(
+                stage.id, stage_input["run_id"], ArtifactType.bam, samtools_out.sorted_bam_path
+            )
+            self._write_artifact(
+                stage.id, stage_input["run_id"], ArtifactType.bai, samtools_out.bai_path
+            )
 
             tool_version = star_out.tool_version
             self._complete_stage(stage, tool_version=tool_version)

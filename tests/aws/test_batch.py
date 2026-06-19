@@ -144,7 +144,13 @@ def test_poll_returns_batch_poll_output(batch_env):
 
 def test_poll_status_valid_literal(batch_env):
     valid_statuses = {
-        "SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING", "SUCCEEDED", "FAILED"
+        "SUBMITTED",
+        "PENDING",
+        "RUNNABLE",
+        "STARTING",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
     }
     inp = BatchJobInput(
         job_name="quant-job-002",
@@ -159,7 +165,9 @@ def test_poll_status_valid_literal(batch_env):
 
 def test_poll_unknown_job_raises(batch_env):
     with pytest.raises(ValueError, match="No Batch job found"):
-        poll_aws_batch_job(BatchPollInput(job_id="00000000-0000-0000-0000-000000000000"), region=REGION)
+        poll_aws_batch_job(
+            BatchPollInput(job_id="00000000-0000-0000-0000-000000000000"), region=REGION
+        )
 
 
 # ── AWSBatchSubmitter class ───────────────────────────────────────────────────
@@ -187,7 +195,15 @@ def test_submitter_class_poll_returns_status(batch_env):
     )
     submitted = submitter.submit(inp)
     polled = submitter.poll(BatchPollInput(job_id=submitted.job_id))
-    assert polled.status in {"SUBMITTED", "PENDING", "RUNNABLE", "STARTING", "RUNNING", "SUCCEEDED", "FAILED"}
+    assert polled.status in {
+        "SUBMITTED",
+        "PENDING",
+        "RUNNABLE",
+        "STARTING",
+        "RUNNING",
+        "SUCCEEDED",
+        "FAILED",
+    }
 
 
 def test_submitter_poll_unknown_raises(batch_env):

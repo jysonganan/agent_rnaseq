@@ -97,9 +97,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
 
     # ── QC filtering ─────────────────────────────────────────────────────────
     adata.var["mt"] = adata.var_names.str.startswith("MT-")
-    sc.pp.calculate_qc_metrics(
-        adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True
-    )
+    sc.pp.calculate_qc_metrics(adata, qc_vars=["mt"], percent_top=None, log1p=False, inplace=True)
     adata = adata[adata.obs.n_genes_by_counts >= args.min_genes, :]
     adata = adata[adata.obs.pct_counts_mt < args.max_pct_mt, :]
     sc.pp.filter_genes(adata, min_cells=args.min_cells)
@@ -125,8 +123,10 @@ def run_pipeline(args: argparse.Namespace) -> None:
     adata.write(h5ad_path)
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
     sc.pl.umap(adata, color="leiden", show=False)
     plt.savefig(os.path.join(args.output_dir, "umap.pdf"), bbox_inches="tight")
     plt.close()
@@ -135,9 +135,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     marker_df.to_csv(os.path.join(args.output_dir, "marker_genes.csv"), index=False)
 
     clusters = sorted(adata.obs["leiden"].unique(), key=int)
-    cells_per_cluster = {
-        c: int((adata.obs["leiden"] == c).sum()) for c in clusters
-    }
+    cells_per_cluster = {c: int((adata.obs["leiden"] == c).sum()) for c in clusters}
     cluster_summary = {
         "n_clusters": len(clusters),
         "cells_per_cluster": cells_per_cluster,
@@ -145,8 +143,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
     with open(os.path.join(args.output_dir, "cluster_summary.json"), "w") as fh:
         json.dump(cluster_summary, fh, indent=2)
 
-    print(f"Scanpy pipeline complete: {len(clusters)} clusters, "
-          f"{adata.n_obs} cells retained.")
+    print(f"Scanpy pipeline complete: {len(clusters)} clusters, {adata.n_obs} cells retained.")
 
 
 def main(argv: list[str] | None = None) -> None:

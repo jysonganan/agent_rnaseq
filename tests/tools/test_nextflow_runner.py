@@ -5,12 +5,9 @@ from __future__ import annotations
 import uuid
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from src.tools.base import ExecutionBackend
 from src.tools.nextflow.config_builder import build_config_overrides, build_params
 from src.tools.nextflow.runner import NextflowRunConfig, NextflowRunner, NextflowStatus
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -216,7 +213,12 @@ class TestBuildConfigOverrides:
 
     def test_awsbatch_includes_s3_work_dir(self) -> None:
         out = build_config_overrides(
-            {"executor": "aws_batch", "cpus": 4, "memory_gb": 16, "s3_work_dir": "s3://my-bucket/work/"}
+            {
+                "executor": "aws_batch",
+                "cpus": 4,
+                "memory_gb": 16,
+                "s3_work_dir": "s3://my-bucket/work/",
+            }
         )
         assert "s3://my-bucket/work/" in out
 

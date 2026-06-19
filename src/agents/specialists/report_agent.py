@@ -23,7 +23,13 @@ class ReportStageInput(TypedDict):
 
 class ReportAgent(BaseSpecialistAgent):
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
-        super().__init__(StageName.report, db, llm_client=llm_client, dry_run=dry_run, mock_registry=mock_registry)
+        super().__init__(
+            StageName.report,
+            db,
+            llm_client=llm_client,
+            dry_run=dry_run,
+            mock_registry=mock_registry,
+        )
 
     def run(self, stage_input: ReportStageInput) -> dict[str, Any]:  # type: ignore[override]
         stage = self._start_stage(stage_input["run_id"], StageName.report, "report_compiler")
@@ -42,7 +48,10 @@ class ReportAgent(BaseSpecialistAgent):
             )
 
             self._write_artifact(
-                stage.id, stage_input["run_id"], ArtifactType.html_report, report_out.html_report_path
+                stage.id,
+                stage_input["run_id"],
+                ArtifactType.html_report,
+                report_out.html_report_path,
             )
 
             tool_version = report_out.tool_version

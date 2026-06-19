@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -13,17 +12,23 @@ from src.db.models.run import AnalysisRun, PipelineStage
 
 
 class TestCreateRun:
-    def test_returns_202(self, client: TestClient, seed_data: dict, auth_headers: dict, run_payload: dict) -> None:
+    def test_returns_202(
+        self, client: TestClient, seed_data: dict, auth_headers: dict, run_payload: dict
+    ) -> None:
         r = client.post("/api/v1/runs", json=run_payload, headers=auth_headers)
         assert r.status_code == 202
 
-    def test_body_has_run_id(self, client: TestClient, seed_data: dict, auth_headers: dict, run_payload: dict) -> None:
+    def test_body_has_run_id(
+        self, client: TestClient, seed_data: dict, auth_headers: dict, run_payload: dict
+    ) -> None:
         r = client.post("/api/v1/runs", json=run_payload, headers=auth_headers)
         body = r.json()
         assert "run_id" in body
         uuid.UUID(body["run_id"])  # must be a valid UUID
 
-    def test_status_is_pending(self, client: TestClient, seed_data: dict, auth_headers: dict, run_payload: dict) -> None:
+    def test_status_is_pending(
+        self, client: TestClient, seed_data: dict, auth_headers: dict, run_payload: dict
+    ) -> None:
         r = client.post("/api/v1/runs", json=run_payload, headers=auth_headers)
         assert r.json()["status"] == "pending"
 
@@ -59,7 +64,9 @@ class TestCreateRun:
 
 
 class TestGetRun:
-    def test_unknown_run_returns_404(self, client: TestClient, seed_data: dict, auth_headers: dict) -> None:
+    def test_unknown_run_returns_404(
+        self, client: TestClient, seed_data: dict, auth_headers: dict
+    ) -> None:
         r = client.get(f"/api/v1/runs/{uuid.uuid4()}", headers=auth_headers)
         assert r.status_code == 404
 
