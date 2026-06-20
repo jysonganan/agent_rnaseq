@@ -84,6 +84,22 @@ export const healthApi = {
   get: (): Promise<HealthResponse> => apiFetch("/health"),
 }
 
+// Validates a candidate API key without persisting it to the module store.
+// Used by AuthContext during bootstrap and by ApiKeyModal on submit.
+export async function validateApiKey(
+  key: string
+): Promise<"valid" | "invalid" | "unreachable"> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/health`, {
+      headers: { Authorization: `Bearer ${key}` },
+    })
+    return response.ok ? "valid" : "invalid"
+  } catch {
+    return "unreachable"
+  }
+}
+
 // Genomes
 export const genomesApi = {
   list: (params?: { limit?: number; offset?: number }): Promise<GenomesListResponse> => {
