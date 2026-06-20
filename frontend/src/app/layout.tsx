@@ -4,6 +4,8 @@ import "./globals.css"
 import { ReactQueryProvider } from "@/providers/ReactQueryProvider"
 import { AuthProvider } from "@/contexts/AuthContext"
 import { AuthGuard } from "@/components/auth/AuthGuard"
+import { Sidebar } from "@/components/layout/Sidebar"
+import { MobileHeader } from "@/components/layout/MobileHeader"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -22,7 +24,22 @@ export default function RootLayout({
       <body className={inter.className}>
         <ReactQueryProvider>
           <AuthProvider>
-            <AuthGuard>{children}</AuthGuard>
+            <AuthGuard>
+              <div className="flex h-screen overflow-hidden">
+                {/* Desktop sidebar — hidden on mobile */}
+                <Sidebar />
+
+                {/* Main column */}
+                <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+                  {/* Mobile top bar — hidden on desktop */}
+                  <MobileHeader />
+
+                  <main className="flex-1 overflow-auto">
+                    {children}
+                  </main>
+                </div>
+              </div>
+            </AuthGuard>
           </AuthProvider>
         </ReactQueryProvider>
       </body>
