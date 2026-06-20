@@ -5,12 +5,16 @@ Add the `Conversation` and `ChatMessage` DB models and all `/conversations` REST
 
 ## Requirements
 - New SQLAlchemy models: `Conversation`, `ChatMessage` (per `docs/specs/data_models.md` entities 12–13)
-- New Pydantic schemas: `ConversationCreate`, `ConversationRead`, `ChatMessageRead`, `SendMessageRequest`, `SendMessageResponse`
-- New API router: `src/api/routers/conversations.py` with all endpoints in `docs/specs/api_contracts.md` Conversations section
-- New WebSocket handler: `src/api/websocket/conversation_stream.py` — subscribes to Redis pub/sub channel `conv:{conversation_id}` and forwards frames to the browser
-- `OrchestratorAgent.dispatch_from_chat(input: ChatDispatchInput) -> ChatDispatchOutput` (per `docs/specs/tool_contracts.md` section 12)
+  - `Conversation` has `deleted_at` for soft-delete support
+  - `AnalysisRun` gains nullable `conversation_id` and `triggering_message_id` FKs (audit trail)
+- New Pydantic schemas: `ConversationCreate`, `ConversationRead`, `ChatMessageRead`, `SendMessageRequest` (content: str, min_length=1, max_length=4000), `SendMessageResponse`
+- New API router: `src/api/routers/conversations.py` with all endpoints in `docs/specs/api_contracts.md` Conversations section (including `DELETE /conversations/{id}`)
+- New WebSocket handler: `src/api/websocket/conversation_stream.py` — subscribes to Redis pub/sub channel `conv:{conversation_id}` and forwards frames to the browser; unsubscribes cleanly on WS disconnect
+- `OrchestratorAgent.dispatch_from_chat(input: ChatDispatchInput) -> ChatDispatchOutput` (per `docs/specs/tool_contracts.md` section 12) with streaming completions (`stream=True`)
 - Redis pub/sub channel naming: `conv:{conversation_id}` for conversation stream, `run:{run_id}` for run log stream (existing)
 - arq job: `process_chat_message(conversation_id, message_id, api_key_id)` — calls `dispatch_from_chat()` and publishes events to Redis
+- Rate limiting: `POST /conversations/{id}/messages` enforces 10 requests/minute per API key (same limit as `POST /runs`)
+- CORS middleware: allow `http://localhost:3000` in development (controlled by `CORS_ALLOW_ORIGINS` env var)
 
 ## Files to Create/Edit
 | File | Action | Purpose |
@@ -37,10 +41,19 @@ All require `Authorization: Bearer <key>` and scope responses to the caller's AP
 
 ## `dispatch_from_chat` Behaviour
 See `docs/specs/tool_contracts.md` section 12 for the full contract. Key constraints:
-- MUST Pydantic-validate all parameters before creating `AnalysisRun`
+- MUST query DB for available samples and genomes before calling LLM; pass them as structured list in system prompt
+- LLM MUST select sample_ids and genome_id from provided UUID lists only; re-validate all IDs against DB after selection
+- MUST use `stream=True` completions; publish each token chunk as a `token` frame to Redis before accumulating
 - MUST NOT write LLM-generated numerical values to `AnalysisRun.run_config`
+- MUST set `AnalysisRun.conversation_id` and `AnalysisRun.triggering_message_id` for runs created via chat
 - Publish frames to Redis as JSON: `{ "type": "token"|"tool_call"|"stage_update"|"done"|"error", "payload": {...} }`
+- `tool_call` frame `summary` field MUST be a JSON excerpt of the validated `ToolOutput` Pydantic model, not LLM prose
+- Write `ChatMessage(role=assistant)` to DB only after the full response is accumulated and `done` frame has been published (atomic commit; no partial writes)
 - Sanitize agent response content before writing to `ChatMessage.content` (strip file paths, credentials, raw stderr per safety_policy.md Rule 11.6)
+
+## Redis Channel Lifecycle
+- `conv:{conversation_id}` channel: pub/sub channels are transient in Redis — they exist only while there are active subscribers. No explicit cleanup is needed. The WS handler unsubscribes on disconnect, which removes the subscriber. If no client is connected when frames are published, frames are silently dropped (no persistence).
+- On WS reconnect, the client must call `GET /conversations/{id}/messages` to catch up on messages committed to DB during disconnection; missed in-flight frames are not replayed.
 
 ## WebSocket Auth
 The `/ws/conversations/{id}/stream` endpoint receives the API key as `?api_key=<key>`. The handler must:
@@ -51,16 +64,27 @@ The `/ws/conversations/{id}/stream` endpoint receives the API key as `?api_key=<
 5. Unsubscribe and close cleanly on WS disconnect.
 
 ## Acceptance Criteria
-- [ ] `POST /conversations` returns 201 with `id`, `title`, `created_at`
-- [ ] `GET /conversations` returns only conversations created by the caller's API key
+- [ ] `POST /conversations` returns 201 with `id`, `title: "New conversation"`, `created_at`
+- [ ] `DELETE /conversations/{id}` sets `deleted_at`; conversation no longer appears in `GET /conversations`
+- [ ] `GET /conversations` returns only conversations owned by caller's key, excluding soft-deleted
+- [ ] `POST /conversations/{id}/messages` with `content` > 4000 chars returns 422
+- [ ] `POST /conversations/{id}/messages` with blank `content` returns 422
 - [ ] `POST /conversations/{id}/messages` with valid content: creates `ChatMessage(role=user)`, enqueues arq task, returns 202 with `message_id` and `run_id` (null if clarification needed)
+- [ ] `POST /conversations/{id}/messages` on first message updates `Conversation.title` to first 60 chars of content
 - [ ] `GET /conversations/{id}/messages` returns messages in chronological order
 - [ ] WS `/ws/conversations/{id}/stream` rejects with 403 if `api_key` param is missing or invalid
 - [ ] WS forwards all Redis frames for the conversation in order
-- [ ] `dispatch_from_chat()` with a resolvable intent creates `AnalysisRun` and returns `run_id`
-- [ ] `dispatch_from_chat()` with an ambiguous intent returns `needs_clarification=True` and no `run_id`
-- [ ] `ChatMessage.content` for assistant messages contains no raw file paths or credentials (automated assertion in tests)
-- [ ] Pydantic validation error on malformed `POST /conversations/{id}/messages` body returns 422
+- [ ] WS unsubscribes from Redis channel cleanly on client disconnect
+- [ ] `dispatch_from_chat()` queries DB for samples and genomes before calling LLM; passes lists in system prompt
+- [ ] `dispatch_from_chat()` rejects a hallucinated sample UUID (not in DB) with `ToolValidationError` before creating `AnalysisRun`
+- [ ] `dispatch_from_chat()` with a resolvable intent creates `AnalysisRun` with `conversation_id` and `triggering_message_id` set
+- [ ] `dispatch_from_chat()` with an ambiguous intent returns `needs_clarification=True` and no `run_id`; no `AnalysisRun` created
+- [ ] Assistant `ChatMessage` is written to DB only after `done` frame is published; crash before `done` leaves no partial record
+- [ ] `tool_call` WS frames have `summary` derived from `ToolOutput` Pydantic model, not LLM text
+- [ ] `ChatMessage.content` for assistant messages contains no raw file paths or credentials (automated assertion)
+- [ ] `POST /conversations/{id}/messages` rate-limited to 10/minute per API key; returns 429 on excess
+- [ ] CORS allows `http://localhost:3000` in dev; blocked in prod for non-matching origins
+- [ ] Pydantic validation error on malformed request body returns 422
 - [ ] New ORM models have Alembic migration generated
 
 ## Definition of Done
@@ -71,6 +95,10 @@ TASK_09_agent_layer_core (OrchestratorAgent base exists), TASK_11_fastapi_servic
 
 ## Safety Checklist
 - [ ] No LLM-generated numerics in `AnalysisRun.run_config`
-- [ ] `ChatMessage.content` sanitized before DB write
+- [ ] `ChatMessage.content` sanitized before DB write (no file paths, credentials, raw stderr)
+- [ ] sample_ids and genome_id resolved from DB-provided lists, never from LLM free text
+- [ ] All selected resource IDs re-validated against DB before RunConfig construction
 - [ ] WS auth validated before channel subscription
 - [ ] API key never logged or included in error responses
+- [ ] `AnalysisRun.conversation_id` and `triggering_message_id` set for chat-originated runs
+- [ ] `ChatMessage(role=assistant)` committed atomically after `done` frame; no partial writes

@@ -594,17 +594,36 @@ clarification_prompt: str | None  # Follow-up question to display if needs_clari
 ```
 
 **Behaviour contract:**
+
+**Sample and genome resolution (anti-hallucination constraint):**
+Before calling the LLM, the method MUST:
+1. Query the DB for all `Sample` records accessible to `api_key_id` (via project ownership).
+2. Query the DB for all registered `ReferenceGenome` records.
+3. Include both lists (id, name, condition, sample_type for samples; id, name, build for genomes) in the LLM system prompt as structured JSON.
+4. The LLM MUST select `sample_ids` and `genome_id` by exact UUID match from these provided lists only. It must NEVER generate or infer UUIDs from free text.
+5. After LLM selection, re-validate that every selected UUID exists in the DB before constructing RunConfig. Raise `ToolValidationError` if any ID is not found.
+
+**LLM completion mode:** The intent-parsing and response-generation calls inside this method MUST use `stream=True` (streaming completions). Each streamed token chunk is published immediately as a `{ "type": "token", "payload": { "message_id": ..., "token": ... } }` frame to the Redis channel `conv:{conversation_id}`. This enables real-time token streaming in the chat UI.
+
+**ChatMessage commit timing:** The arq worker accumulates all streamed tokens in memory. After the full response is assembled and the `done` frame has been published to Redis, the worker writes a single `ChatMessage(role=assistant, content=<full_accumulated_text>)` to the DB. If the worker crashes before this commit, the assistant message is absent from history (safe failure — the user can re-send). Partial commits are forbidden.
+
+**tool_call frame summary field:** The `summary` field in `tool_call` WS frames MUST be a JSON-serialized excerpt of the validated `ToolOutput` Pydantic model (e.g., `{"significant_genes": 423, "total_genes": 18000}`). It must NOT be LLM-generated prose. LLM prose summaries appear only in `token` frames.
+
 - If `user_content` is ambiguous, the method:
-  1. Creates a `ChatMessage(role=assistant)` with the clarification question.
-  2. Returns `ChatDispatchOutput(run_id=None, needs_clarification=True, ...)`.
-  3. Does NOT create an `AnalysisRun`.
+  1. Streams clarification question as `token` frames.
+  2. Publishes `done` frame with `run_id: null`.
+  3. Writes `ChatMessage(role=assistant)` with the clarification text.
+  4. Returns `ChatDispatchOutput(run_id=None, needs_clarification=True, clarification_prompt=<text>)`.
+  5. Does NOT create an `AnalysisRun`.
 - If `user_content` resolves to a complete `RunConfig`:
-  1. Pydantic-validates the RunConfig (same rules as `POST /runs`).
-  2. Creates `AnalysisRun` and enqueues arq job.
-  3. Creates `ChatMessage(role=assistant)` acknowledging the run.
-  4. Returns `ChatDispatchOutput(run_id=<uuid>, needs_clarification=False, ...)`.
+  1. Pydantic-validates the RunConfig (same rules as `POST /runs`; same parameter guardrails from Rule 5).
+  2. Sets `AnalysisRun.conversation_id` and `AnalysisRun.triggering_message_id` for audit trail.
+  3. Creates `AnalysisRun`, enqueues arq pipeline job.
+  4. Streams acknowledgement as `token` frames; publishes `done` frame with `run_id`.
+  5. Writes `ChatMessage(role=assistant)` with acknowledgement text.
+  6. Returns `ChatDispatchOutput(run_id=<uuid>, needs_clarification=False, ...)`.
 - The method must never write LLM-generated numerical values to `AnalysisRun.run_config`; all numerical parameters come from Pydantic defaults or validated user-specified values.
-- Streaming events (tokens, tool calls, stage updates) are published to Redis pub/sub channel `conv:{conversation_id}` for the WebSocket handler to forward.
+- Redis channel for streaming: `conv:{conversation_id}`.
 
 ---
 

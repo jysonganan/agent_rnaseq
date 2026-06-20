@@ -25,9 +25,10 @@ Embed the Streamlit visualization app and the UCSC genome browser as iframes wit
 ```typescript
 interface StreamlitEmbedProps {
   height?: number        // default 700
-  runId?: string         // if provided, appends ?run_id={runId} to Streamlit URL
 }
 ```
+
+**Note:** A `runId` prop was considered but removed. The current Streamlit app reads from static files on disk and does not accept `run_id` as a query parameter. Adding `?run_id=` would silently show the wrong data. Run-specific Streamlit filtering requires a backend change to the Streamlit app (out of scope for this task).
 
 ## GenomeBrowserEmbed Props
 ```typescript

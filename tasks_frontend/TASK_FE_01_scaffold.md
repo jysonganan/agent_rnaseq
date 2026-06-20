@@ -15,7 +15,7 @@ Bootstrap the Next.js 14 (App Router) project with TypeScript, Tailwind CSS, sha
 ## Files to Create
 | File | Purpose |
 |---|---|
-| `frontend/package.json` | Dependencies and npm scripts |
+| `frontend/package.json` | Dependencies and npm scripts (including `test` script) |
 | `frontend/tsconfig.json` | TypeScript config, strict mode |
 | `frontend/next.config.ts` | Next.js config: `output: 'export'`, `basePath: '/app'` |
 | `frontend/tailwind.config.ts` | Tailwind config with shadcn/ui content paths |
@@ -27,6 +27,15 @@ Bootstrap the Next.js 14 (App Router) project with TypeScript, Tailwind CSS, sha
 | `frontend/src/app/page.tsx` | Root page: redirects to `/chat` |
 | `frontend/src/app/globals.css` | Tailwind directives + shadcn/ui CSS variables |
 | `frontend/src/components/ui/` | Auto-generated shadcn/ui component files |
+| `frontend/jest.config.ts` | Jest config: jsdom environment, path aliases |
+| `frontend/jest.setup.ts` | `@testing-library/jest-dom` setup |
+
+## Test Infrastructure
+Unit test stack: **Jest + React Testing Library + msw** (Mock Service Worker).
+- `jest.config.ts` uses `next/jest` transformer and `jsdom` test environment.
+- `jest.setup.ts` imports `@testing-library/jest-dom/extend-expect`.
+- msw is configured in TASK_FE_02; this task only adds the Jest scaffolding.
+- `npm test` runs `jest --passWithNoTests` (no tests yet at scaffold stage).
 
 ## Environment Variables
 ```
@@ -39,6 +48,7 @@ NEXT_PUBLIC_STREAMLIT_URL=http://localhost:8501 # Streamlit server URL
 - [ ] `npm run dev` starts dev server at `localhost:3000` with no compile errors
 - [ ] `npm run build` produces `frontend/out/` directory (static export)
 - [ ] `npm run lint` passes with zero warnings
+- [ ] `npm test` exits 0 (no tests yet, but Jest runs cleanly)
 - [ ] TypeScript: `npx tsc --noEmit` exits 0
 - [ ] A sample page using `Button` from shadcn/ui renders correctly at `localhost:3000`
 - [ ] Tailwind utility classes apply correctly (e.g., `bg-blue-500 text-white`)

@@ -6,7 +6,8 @@ Configure FastAPI to serve the compiled Next.js static export under `/app`, and 
 ## Requirements
 - `next.config.ts`: `output: 'export'` produces `frontend/out/` directory
 - FastAPI mounts `frontend/out/` as `StaticFiles` at `/app`
-- `GET /app/` returns the Next.js `index.html`; all SPA routes served via `index.html` fallback (Next.js static export generates per-route `index.html` files, so each route directory must be served)
+- `GET /app/` returns the Next.js `index.html`; all SPA routes served via per-route `index.html` (Next.js static export generates per-route `index.html` files in subdirectories matching `basePath`)
+- Static assets under `/app/_next/static/` must be served correctly — the `basePath: '/app'` prefix in next.config.ts causes Next.js to generate all asset paths under `_next/static/` with `/app/` prefix; verify these are served by the same StaticFiles mount
 - `Makefile`: `frontend-build` target runs `npm ci && npm run build` in `frontend/`
 - Docker multi-stage build:
   - Stage 1 (`node-build`): installs Node deps, runs `npm run build`
@@ -14,6 +15,7 @@ Configure FastAPI to serve the compiled Next.js static export under `/app`, and 
   - FastAPI reads mount path from env var `FRONTEND_OUT_DIR` (default `/app/frontend/out/`)
 - `docker-compose.yml`: in dev, keep Next.js dev server as separate service on port 3000 (proxies to API at port 8000); the static mount is for prod only
 - `NEXT_PUBLIC_API_URL` in the static build must point to `/` (same host), not `localhost:8000`, so the browser uses relative paths when served from FastAPI
+- CORS: in development the Next.js dev server (port 3000) calls FastAPI (port 8000); FastAPI must add `CORSMiddleware` with `allow_origins` read from env var `CORS_ALLOW_ORIGINS` (default `["http://localhost:3000"]`). In production this env var is set to `""` (empty) because the frontend is same-origin. Never hardcode `*` as `allow_origins`.
 
 ## Files to Create/Edit
 | File | Action | Purpose |
@@ -24,6 +26,8 @@ Configure FastAPI to serve the compiled Next.js static export under `/app`, and 
 | `docker/docker-compose.yml` | Edit | Add `frontend-dev` service on port 3000 (dev only) |
 | `Makefile` | Edit | Add `frontend-build` target |
 | `frontend/.env.production` | Create | `NEXT_PUBLIC_API_URL=` (empty → relative URLs) |
+| `src/api/main.py` | Edit (CORS) | Add `CORSMiddleware` with `CORS_ALLOW_ORIGINS` env var |
+| `.env.example` (root) | Edit | Add `CORS_ALLOW_ORIGINS=http://localhost:3000` |
 
 ## FastAPI Mount (in `main.py`)
 ```python
@@ -68,10 +72,13 @@ frontend-build:
 - [ ] `GET http://localhost:8000/app/` returns the Next.js app HTML (200)
 - [ ] `GET http://localhost:8000/app/chat` returns an `index.html` (not 404)
 - [ ] `GET http://localhost:8000/app/runs` returns an `index.html` (not 404)
+- [ ] `GET http://localhost:8000/app/_next/static/chunks/main.js` returns 200 (static assets served correctly under `/app`)
 - [ ] `GET http://localhost:8000/api/v1/health` still returns 200 (API not shadowed by static mount)
 - [ ] Docker multi-stage build produces a single image: `docker build -f docker/Dockerfile.api .` succeeds
 - [ ] In the Docker image, `FRONTEND_OUT_DIR` is set to `/app/frontend/out`
 - [ ] `frontend-dev` Docker Compose service runs `npm run dev` on port 3000 with `NEXT_PUBLIC_API_URL=http://localhost:8000`
+- [ ] CORS: `GET http://localhost:8000/api/v1/health` with `Origin: http://localhost:3000` header returns `Access-Control-Allow-Origin: http://localhost:3000` in dev
+- [ ] CORS: production FastAPI image has `CORS_ALLOW_ORIGINS=` (empty); cross-origin requests from unexpected origins receive no CORS headers
 
 ## Definition of Done
 All acceptance criteria pass. Verified end-to-end: `docker compose up`, navigate to `http://localhost:8000/app/`, the chat UI loads and can authenticate.

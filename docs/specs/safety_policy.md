@@ -141,6 +141,16 @@ Audit records must not be deleted or modified after creation. `UPDATE` on `Pipel
 - The chat input field does not accept or execute commands; it sends plain text to `POST /conversations/{id}/messages`.
 - The frontend never constructs `RunConfig` objects from raw user input — only the Orchestrator (server-side Pydantic validation) may do this.
 - Parameters in any form fields must be validated client-side against the same bounds defined in Rule 5 (threads, memory_gb, alpha, etc.) before submission, to provide early UX feedback. Server-side validation remains authoritative.
+- `content` field in `POST /conversations/{id}/messages` is limited to 4000 characters; enforced by the API before the arq task is enqueued.
+
+### 11.3a — LLM Resource Selection Constraint (anti-hallucination)
+When `dispatch_from_chat()` resolves a `RunConfig` from natural language:
+- All `sample_ids` MUST be selected from a DB-queried list of samples accessible to the caller; the LLM may NOT invent or infer UUIDs from free text.
+- `genome_id` MUST be selected from a DB-queried list of registered `ReferenceGenome` records.
+- After LLM selection, all IDs must be re-validated against the DB before constructing `RunConfig`. An unrecognized ID is a `ToolValidationError`, not an LLM failure.
+- This rule applies equivalently to `project_id` if the LLM must select a project.
+
+Rationale: hallucinated UUIDs would either fail at FK constraint (DB error, not graceful) or, if they accidentally match a valid ID, silently run a pipeline on unintended data.
 
 ### 11.4 iframe Sandboxing
 - `StreamlitEmbed` and `GenomeBrowserEmbed` iframes must have `sandbox="allow-scripts allow-same-origin"` (Streamlit) or `sandbox="allow-scripts allow-forms allow-same-origin"` (UCSC browser).

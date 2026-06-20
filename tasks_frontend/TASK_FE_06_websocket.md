@@ -72,8 +72,30 @@ Show `ConnectionStatus` indicator in chat thread when disconnected or errored.
 - [ ] API key never logged to console
 - [ ] TypeScript strict: no `any`
 
+## Mock WebSocket Testing
+Unit tests for WebSocket hooks must not require a live FastAPI server. Use msw v2's WebSocket handler support:
+
+```typescript
+// In frontend/src/mocks/handlers.ts (added by this task)
+import { ws } from 'msw'
+
+export const conversationStreamHandler = ws(
+  `${process.env.NEXT_PUBLIC_API_URL}/ws/conversations/:id/stream`,
+  ({ client }) => {
+    // Emit fixture frames on connection
+    client.send(JSON.stringify({ type: 'token', payload: { message_id: 'uuid', token: 'Hello' } }))
+    client.send(JSON.stringify({ type: 'done', payload: { message_id: 'uuid', run_id: null } }))
+  }
+)
+```
+
+**Acceptance Criteria (added):**
+- [ ] Jest test for `useConversationStream`: mock WS server emits token + done frames; hook accumulates tokens and sets status to "connected" then back to idle after done
+- [ ] Jest test for reconnect back-off: mock WS server closes immediately on connect; verify hook attempts 3 reconnects with increasing delays, then sets `status: "error"`
+- [ ] Jest test for unmount cleanup: verify WS is closed on unmount (no open handle warning in Jest)
+
 ## Definition of Done
-All acceptance criteria pass. Tested end-to-end with a running FastAPI server: send a message, observe token streaming and tool call cards updating in real time.
+All acceptance criteria (including mock WS tests) pass. End-to-end tested with a running FastAPI server.
 
 ## Dependencies
 TASK_FE_01, TASK_FE_02, TASK_FE_03, TASK_FE_05.

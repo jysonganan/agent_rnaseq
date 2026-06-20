@@ -228,6 +228,8 @@ Get full run detail including stage statuses.
   "status": "completed",
   "pipeline_type": "bulk_rnaseq",
   "genome": { "id": "uuid", "name": "GRCh38_v43" },
+  "conversation_id": "uuid or null",
+  "triggering_message_id": "uuid or null",
   "stages": [
     {
       "id": "uuid",
@@ -482,6 +484,8 @@ Revoke an API key immediately.
 #### `WS /ws/runs/{run_id}/logs`
 Streams agent log messages in real time.
 
+**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). The handler validates the key against the `APIKey` table and verifies the run belongs to that key before subscribing to the Redis channel.
+
 **Message format**
 ```json
 {
@@ -575,6 +579,15 @@ Get full message history for a conversation.
 }
 ```
 
+#### `DELETE /conversations/{conversation_id}`
+Soft-delete a conversation (sets `deleted_at`; excludes it from `GET /conversations`). Cascades to mark all `ChatMessage` records as deleted.
+
+**Response 200**
+```json
+{ "id": "uuid", "deleted_at": "2026-06-20T10:00:00Z" }
+```
+**Response 404** — RFC 9457 if not found or not owned by caller.
+
 #### `POST /conversations/{conversation_id}/messages`
 Send a user message and trigger agent processing.
 
@@ -582,6 +595,7 @@ Send a user message and trigger agent processing.
 ```json
 { "content": "Run DE analysis comparing treatment vs control" }
 ```
+`content` is required and must be 1–4000 characters. Returns 422 if blank or exceeds limit.
 
 **Response 202**
 ```json
@@ -593,10 +607,13 @@ Send a user message and trigger agent processing.
 ```
 
 The endpoint:
-1. Persists a `ChatMessage` with `role=user`.
-2. Enqueues agent processing via arq.
-3. Returns immediately — agent response arrives via WebSocket stream.
-4. If the agent cannot infer a complete `RunConfig`, it responds with follow-up questions (via WS stream) without creating a run; `run_id` is `null` in that case.
+1. Validates `content` length (1–4000 chars); returns 422 on violation.
+2. Persists a `ChatMessage` with `role=user`.
+3. Updates `Conversation.title` from first message if title is still `"New conversation"`.
+4. Enqueues `process_chat_message` arq task.
+5. Returns immediately — agent response arrives via WebSocket stream.
+6. If the agent cannot infer a complete `RunConfig`, it streams a clarification question as `token` frames and a `done` frame with `run_id: null`; `run_id` is also `null` in the HTTP response.
+7. On reconnect after WS disconnect, the client must re-fetch `GET /conversations/{id}/messages` to catch up on any frames missed during disconnection.
 
 ---
 
@@ -653,7 +670,12 @@ Streams agent response tokens and pipeline events for a conversation.
 
 ## Rate Limits
 - `POST /runs`: 10 requests/minute per API key.
+- `POST /conversations/{id}/messages`: 10 requests/minute per API key (same cost as POST /runs — triggers LLM call and potentially a full pipeline run).
 - All other endpoints: 120 requests/minute per API key.
+
+## CORS Policy
+- In development: FastAPI must add `CORSMiddleware` allowing `http://localhost:3000` (Next.js dev server).
+- In production: The frontend is served from the same origin (`/app`), so no CORS headers are needed for API requests. CORS middleware should allow only the known frontend origin — never `*` in production.
 
 ## Versioning
 - API version in URL path: `/api/v1/`.
