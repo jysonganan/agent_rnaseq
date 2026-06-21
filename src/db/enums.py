@@ -93,3 +93,16 @@ class SplicingEventType(enum.StrEnum):
     A3SS = "A3SS"
     MXE = "MXE"
     RI = "RI"
+
+
+class MessageRole(enum.StrEnum):
+    user = "user"
+    assistant = "assistant"
+    tool = "tool"
+
+
+class ToolStatus(enum.StrEnum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
