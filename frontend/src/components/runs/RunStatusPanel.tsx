@@ -9,6 +9,7 @@ import { StageTable } from "./StageTable"
 import { ArtifactList } from "./ArtifactList"
 import { RunLogTail } from "./RunLogTail"
 import { CancelRunButton } from "./CancelRunButton"
+import { StreamlitEmbed } from "@/components/visualization/StreamlitEmbed"
 import type { RunStatus } from "@/lib/types"
 
 function Ts({ label, value }: { label: string; value: string | null }) {
@@ -128,6 +129,13 @@ export function RunStatusPanel({ runId }: Props) {
       <Section title="Artifacts">
         <ArtifactList runId={run.id} artifacts={run.artifacts} />
       </Section>
+
+      {/* Mini Streamlit embed — only when a streamlit_data artifact exists */}
+      {run.artifacts.some((a) => a.artifact_type === "streamlit_data") && (
+        <Section title="Visualization">
+          <StreamlitEmbed height={500} />
+        </Section>
+      )}
     </div>
   )
 }
