@@ -79,6 +79,8 @@ One end-to-end pipeline execution.
 | `completed_at` | TIMESTAMP | | |
 | `created_at` | TIMESTAMP | NOT NULL | |
 | `created_by` | UUID | FK → APIKey, NOT NULL | API key that created this run |
+| `conversation_id` | UUID | FK → Conversation, nullable | Set when run is created via chat; null for API-direct runs |
+| `triggering_message_id` | UUID | FK → ChatMessage, nullable | The user ChatMessage that triggered this run; null for API-direct runs |
 
 ---
 
@@ -220,6 +222,53 @@ Variant records from GATK.
 
 ---
 
+### 12. `Conversation`
+Chat conversation thread grouping a series of user and agent messages.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `title` | VARCHAR(256) | NOT NULL | Defaults to `"New conversation"` at creation; updated to first 60 chars of first user message unless an explicit title was provided at creation |
+| `created_by` | UUID | FK → APIKey, NOT NULL | Key that created the conversation |
+| `created_at` | TIMESTAMP | NOT NULL | |
+| `updated_at` | TIMESTAMP | NOT NULL | Updated on each new message |
+| `deleted_at` | TIMESTAMP | | Soft-delete: set on DELETE /conversations/{id}; non-null rows excluded from GET /conversations |
+
+**Title update rule:** When the first `ChatMessage(role=user)` is committed, the backend sets `Conversation.title = user_content[:60]` if and only if `title` is still `"New conversation"` (i.e., no explicit title was given at creation).
+
+**Indexes:**
+- `(created_by, deleted_at)` — for listing a user's active conversations
+- `(updated_at DESC)` — for ordered conversation list
+
+---
+
+### 13. `ChatMessage`
+Individual message within a conversation.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `conversation_id` | UUID | FK → Conversation, NOT NULL | Parent conversation |
+| `role` | ENUM | NOT NULL | `user`, `assistant`, `tool` |
+| `content` | TEXT | NOT NULL | Markdown text (user/assistant) or JSON summary (tool) |
+| `run_id` | UUID | FK → AnalysisRun | Set when message triggers or references a run |
+| `tool_name` | VARCHAR(64) | | For role=tool messages: which tool was called |
+| `tool_status` | ENUM | | `pending`, `running`, `completed`, `failed` |
+| `created_at` | TIMESTAMP | NOT NULL | |
+
+**Constraints:**
+- `content` for `role=assistant` must never contain raw numerical pipeline output — only LLM-generated prose summaries of validated `ToolOutput` objects.
+- `content` for `role=tool` is the JSON serialization of the corresponding `ToolOutput` Pydantic model summary (not LLM-generated text).
+- `content` for `role=user` is limited to 4000 characters; enforced at the API layer before DB write.
+
+**Commit timing for `role=assistant`:** The assistant ChatMessage is written to DB only after the `done` event has been published to Redis and the full token stream is accumulated. If the arq worker crashes before this commit, the assistant turn is absent from history (safe failure; user can re-send). A partially committed assistant message must not be written.
+
+**Indexes:**
+- `(conversation_id, created_at)` — primary access pattern for message history
+- `(run_id)` — for finding messages related to a specific run
+
+---
+
 ### 14. `APIKey`
 API key credentials for authentication.
 
@@ -288,4 +337,6 @@ ArtifactType:  fastqc_report | bam | bai | counts_matrix | vcf |
                html_report | streamlit_data | scrna_h5ad | scrna_umap | marker_genes
 Executor:      local | nextflow | aws_batch
 PassFail:      pass | warn | fail
+MessageRole:   user | assistant | tool
+ToolStatus:    pending | running | completed | failed
 ```

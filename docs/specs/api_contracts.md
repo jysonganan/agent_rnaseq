@@ -228,6 +228,8 @@ Get full run detail including stage statuses.
   "status": "completed",
   "pipeline_type": "bulk_rnaseq",
   "genome": { "id": "uuid", "name": "GRCh38_v43" },
+  "conversation_id": "uuid or null",
+  "triggering_message_id": "uuid or null",
   "stages": [
     {
       "id": "uuid",
@@ -482,6 +484,8 @@ Revoke an API key immediately.
 #### `WS /ws/runs/{run_id}/logs`
 Streams agent log messages in real time.
 
+**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). The handler validates the key against the `APIKey` table and verifies the run belongs to that key before subscribing to the Redis channel.
+
 **Message format**
 ```json
 {
@@ -495,9 +499,183 @@ Streams agent log messages in real time.
 
 ---
 
+### Conversations (Chat UI)
+
+#### `POST /conversations`
+Create a new conversation thread.
+
+**Request body**
+```json
+{ "title": "Optional override title" }
+```
+
+**Response 201**
+```json
+{ "id": "uuid", "title": "New conversation", "created_at": "..." }
+```
+
+#### `GET /conversations`
+List conversations for the authenticated API key.
+
+**Query params**: `limit` (default 20), `offset` (default 0)
+
+**Response 200**
+```json
+{
+  "total": 5,
+  "conversations": [
+    { "id": "uuid", "title": "DE analysis ctrl vs treatment", "updated_at": "..." }
+  ]
+}
+```
+
+#### `GET /conversations/{conversation_id}`
+Get conversation metadata.
+
+**Response 200**
+```json
+{ "id": "uuid", "title": "...", "created_at": "...", "updated_at": "..." }
+```
+**Response 404** — RFC 9457 if not found or not owned by caller's API key.
+
+#### `GET /conversations/{conversation_id}/messages`
+Get full message history for a conversation.
+
+**Query params**: `limit` (default 100), `offset` (default 0)
+
+**Response 200**
+```json
+{
+  "total": 12,
+  "messages": [
+    {
+      "id": "uuid",
+      "role": "user",
+      "content": "Run DE analysis comparing treatment vs control",
+      "run_id": null,
+      "tool_name": null,
+      "tool_status": null,
+      "created_at": "..."
+    },
+    {
+      "id": "uuid",
+      "role": "assistant",
+      "content": "I'll set up a bulk RNA-seq differential expression run ...",
+      "run_id": "uuid",
+      "tool_name": null,
+      "tool_status": null,
+      "created_at": "..."
+    },
+    {
+      "id": "uuid",
+      "role": "tool",
+      "content": "{\"tool\": \"run_deseq2\", \"status\": \"completed\", \"significant_genes\": 423}",
+      "run_id": "uuid",
+      "tool_name": "run_deseq2",
+      "tool_status": "completed",
+      "created_at": "..."
+    }
+  ]
+}
+```
+
+#### `DELETE /conversations/{conversation_id}`
+Soft-delete a conversation (sets `deleted_at`; excludes it from `GET /conversations`). Cascades to mark all `ChatMessage` records as deleted.
+
+**Response 200**
+```json
+{ "id": "uuid", "deleted_at": "2026-06-20T10:00:00Z" }
+```
+**Response 404** — RFC 9457 if not found or not owned by caller.
+
+#### `POST /conversations/{conversation_id}/messages`
+Send a user message and trigger agent processing.
+
+**Request body**
+```json
+{ "content": "Run DE analysis comparing treatment vs control" }
+```
+`content` is required and must be 1–4000 characters. Returns 422 if blank or exceeds limit.
+
+**Response 202**
+```json
+{
+  "message_id": "uuid",
+  "run_id": "uuid",
+  "status": "processing"
+}
+```
+
+The endpoint:
+1. Validates `content` length (1–4000 chars); returns 422 on violation.
+2. Persists a `ChatMessage` with `role=user`.
+3. Updates `Conversation.title` from first message if title is still `"New conversation"`.
+4. Enqueues `process_chat_message` arq task.
+5. Returns immediately — agent response arrives via WebSocket stream.
+6. If the agent cannot infer a complete `RunConfig`, it streams a clarification question as `token` frames and a `done` frame with `run_id: null`; `run_id` is also `null` in the HTTP response.
+7. On reconnect after WS disconnect, the client must re-fetch `GET /conversations/{id}/messages` to catch up on any frames missed during disconnection.
+
+---
+
+### WebSocket: Conversation Stream
+
+#### `WS /ws/conversations/{conversation_id}/stream`
+Streams agent response tokens and pipeline events for a conversation.
+
+**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers).
+
+**Frame types**
+
+`token` — streaming LLM response token:
+```json
+{ "type": "token", "payload": { "message_id": "uuid", "token": "Setting up" } }
+```
+
+`tool_call` — tool invocation event:
+```json
+{
+  "type": "tool_call",
+  "payload": {
+    "message_id": "uuid",
+    "tool_name": "run_deseq2",
+    "status": "running",
+    "summary": null
+  }
+}
+```
+
+`stage_update` — pipeline stage status change:
+```json
+{
+  "type": "stage_update",
+  "payload": {
+    "run_id": "uuid",
+    "stage_name": "differential_expression",
+    "status": "completed"
+  }
+}
+```
+
+`done` — agent turn complete:
+```json
+{ "type": "done", "payload": { "message_id": "uuid", "run_id": "uuid" } }
+```
+
+`error` — agent or pipeline error:
+```json
+{ "type": "error", "payload": { "message": "Stage failed: alignment" } }
+```
+
+---
+
 ## Rate Limits
 - `POST /runs`: 10 requests/minute per API key.
+- `POST /conversations/{id}/messages`: 10 requests/minute per API key (same cost as POST /runs — triggers LLM call and potentially a full pipeline run).
 - All other endpoints: 120 requests/minute per API key.
+
+## CORS Policy
+- In development: FastAPI must add `CORSMiddleware` allowing `http://localhost:3000` (Next.js dev server).
+- In production: The frontend is served from the same origin (`/app`), so no CORS headers are needed for API requests. CORS middleware should allow only the known frontend origin — never `*` in production.
 
 ## Versioning
 - API version in URL path: `/api/v1/`.

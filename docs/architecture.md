@@ -200,7 +200,160 @@ FASTQ (S3 / local)
 
 ```
 dev:   docker-compose (API + SQLite + Streamlit + local Nextflow)
+       + Next.js dev server (localhost:3000, proxies to localhost:8000)
 prod:  Kubernetes or ECS (API + PostgreSQL + Streamlit)
+       + FastAPI serves Next.js static build under /app
        + AWS Batch (Nextflow pipelines)
        + S3 (artifacts)
 ```
+
+---
+
+## 10. Frontend Architecture
+
+### 10.1 Overview
+
+The Chat UI is a Next.js 14 (App Router) TypeScript application that provides a natural-language interface to the RNA-seq pipeline. Users describe their analysis in plain English; the Orchestrator Agent interprets the intent, builds a `RunConfig`, and dispatches the pipeline. Results stream back in real time via WebSocket.
+
+```
+Browser (Next.js App)
+      │
+      │  REST (React Query)      WebSocket
+      ▼                          ▼
+┌──────────────────────────────────────────────┐
+│              FastAPI Gateway                 │
+│  /api/v1/*   /ws/runs/{id}/logs              │
+│  /conversations/*  /ws/conversations/{id}/… │
+└──────────┬──────────────────────────────────┘
+           │
+           ▼
+    OrchestratorAgent
+    (OpenAI Agents SDK + LangGraph)
+           │
+    … existing pipeline agents …
+```
+
+FastAPI serves the compiled Next.js static build under `/app` in production. In development the Next.js dev server runs on port 3000 and proxies `/api` and `/ws` to the FastAPI server on port 8000.
+
+---
+
+### 10.2 Next.js App Router Structure
+
+| Route | View |
+|---|---|
+| `/` | Redirects to `/chat` |
+| `/chat` | New conversation (blank thread) |
+| `/chat/[conversation_id]` | Existing conversation thread |
+| `/runs` | Paginated run history list |
+| `/runs/[run_id]` | Run detail: stage progress + artifacts |
+| `/browser` | Genome browser (UCSC iframe) + Streamlit embed |
+
+---
+
+### 10.3 Major UI Components
+
+| Component | Purpose |
+|---|---|
+| `AuthGuard` | Blocks all routes until a valid API key is stored |
+| `ApiKeyModal` | First-load modal for API key entry and validation |
+| `Sidebar` | Navigation: Chat, Runs, Browser; conversation history list |
+| `ConversationThread` | Scrollable list of `UserMessage` + `AgentMessage` bubbles |
+| `MessageInput` | Textarea + submit button; disabled while agent is responding |
+| `AgentMessage` | Markdown-rendered agent response via `react-markdown` |
+| `ToolCallCard` | Inline card: tool name, running/completed/failed status, output summary |
+| `StageProgressIndicator` | Compact inline indicator for stage transitions |
+| `RunStatusPanel` | Full stage-by-stage progress bar + artifact download list |
+| `ArtifactDownloadLink` | Calls `/artifacts/{id}/download`, opens presigned URL |
+| `RunList` / `RunListItem` | History view rows with status badge |
+| `StreamlitEmbed` | `<iframe>` pointing at configurable Streamlit URL |
+| `GenomeBrowserEmbed` | `<iframe>` pointing at UCSC genome browser |
+
+---
+
+### 10.4 API Client Layer
+
+All server communication goes through `frontend/src/lib/api.ts`:
+
+```
+api.ts
+  ├── apiFetch(path, options)   — injects Authorization header, maps HTTP errors to ApiError
+  ├── conversationsApi          — CRUD for /conversations + POST message
+  ├── runsApi                   — GET /runs, GET /runs/{id}, POST /runs/{id}/cancel
+  └── artifactsApi              — GET /runs/{id}/artifacts, GET download URL
+```
+
+React Query `QueryClient` (singleton in `query-client.ts`) caches and invalidates:
+- `['conversations']` — invalidated on new conversation
+- `['conversation', id]` — invalidated on new message
+- `['runs']` — polled every 5 s while any run is `pending` or `running`
+- `['run', id]` — polled every 3 s while run is not terminal
+
+---
+
+### 10.5 WebSocket Streaming
+
+Two WebSocket hooks:
+
+**`useRunLogStream(run_id)`**
+- Connects to `WS /ws/runs/{run_id}/logs`
+- Parses `{ ts, level, stage, agent, message }` frames
+- Appends to a local log buffer displayed in `RunStatusPanel`
+
+**`useConversationStream(conversation_id)`**
+- Connects to `WS /ws/conversations/{conversation_id}/stream`
+- Parses frames: `{ type: "token" | "tool_call" | "stage_update" | "done", payload }`
+- `token` frames accumulate into the current `AgentMessage` (streaming effect)
+- `tool_call` frames create / update `ToolCallCard` components
+- `stage_update` frames update `StageProgressIndicator`
+- Both hooks reconnect with exponential back-off (max 3 retries, then show error)
+
+---
+
+### 10.6 Authentication Flow
+
+```
+1. App load → AuthContext reads localStorage['rnaseq_api_key']
+2. Key absent → render ApiKeyModal (blocks all other routes)
+3. User submits key → GET /health with Authorization: Bearer <key>
+4. 200 → store in localStorage, dismiss modal, render app
+5. 401 → show error "Invalid API key", clear stored value
+6. Key present → all apiFetch calls inject header automatically
+7. Any 401 from API → clear key, show ApiKeyModal
+```
+
+The raw key lives only in localStorage and in HTTP request headers. It is never included in URL query params, POST bodies, or DB records.
+
+---
+
+### 10.7 Chat → Pipeline Dispatch Flow
+
+```
+1. User types: "Run DE analysis on ctrl vs treatment samples"
+2. POST /conversations/{id}/messages  { role: "user", content: "..." }
+3. FastAPI creates ChatMessage(role=user)
+4. FastAPI calls OrchestratorAgent.dispatch_from_chat(message, conversation_id)
+   a. LLM parses intent → draft RunConfig (Pydantic-validated)
+   b. Prompts for any missing info (genome, samples) as follow-up agent messages
+   c. On full RunConfig: creates AnalysisRun, enqueues job via arq
+   d. Returns run_id
+5. FastAPI returns { message_id, run_id } to frontend
+6. Frontend connects to WS /ws/conversations/{id}/stream
+7. Agent events stream: thinking tokens, tool call cards, stage updates
+8. On run completion: Streamlit data files available; StreamlitEmbed shows results
+```
+
+---
+
+### 10.8 New Backend Components Required
+
+| Component | Description |
+|---|---|
+| `Conversation` DB model | Stores chat conversation metadata |
+| `ChatMessage` DB model | Individual user / assistant / tool messages |
+| `POST /conversations` | Create a conversation |
+| `GET /conversations` | List conversations (paginated) |
+| `POST /conversations/{id}/messages` | Send a message, trigger agent |
+| `GET /conversations/{id}/messages` | Fetch message history |
+| `WS /ws/conversations/{id}/stream` | Stream agent response tokens + events |
+| `OrchestratorAgent.dispatch_from_chat()` | Parse intent + create AnalysisRun |
+| FastAPI static file mount | Serve `frontend/out/` at `/app` |

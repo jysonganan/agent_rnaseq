@@ -56,6 +56,14 @@ class AnalysisRun(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Chat-originated run audit trail
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("conversations.id"), nullable=True
+    )
+    # Soft reference to chat_messages to avoid circular FK with ChatMessage.run_id
+    triggering_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True
+    )
 
     project: Mapped["Project"] = relationship(  # type: ignore[name-defined]  # noqa: F821
         "Project", back_populates="runs"

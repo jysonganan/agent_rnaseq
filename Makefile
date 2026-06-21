@@ -1,4 +1,4 @@
-.PHONY: install test test-integration lint docker-up docker-down format typecheck docker-build docker-push demo demo-record
+.PHONY: install test test-integration lint docker-up docker-down format typecheck docker-build docker-push frontend-build demo demo-record
 
 REGISTRY ?= 123456789.dkr.ecr.us-east-1.amazonaws.com
 IMAGE_TAG ?= latest
@@ -39,6 +39,10 @@ docker-push:
 	docker push $(REGISTRY)/agent-rnaseq-api:$(IMAGE_TAG)
 	docker push $(REGISTRY)/agent-rnaseq-streamlit:$(IMAGE_TAG)
 	docker push $(REGISTRY)/agent-rnaseq-tools:$(IMAGE_TAG)
+
+frontend-build:
+	cd frontend && npm ci && npm run build
+	@echo "Frontend build complete: frontend/out/"
 
 demo:
 	python data/generate_data.py

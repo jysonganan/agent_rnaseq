@@ -569,6 +569,64 @@ Each fixture is a JSON serialization of the corresponding `ToolOutput` Pydantic 
 
 ---
 
+## 12. Chat Gateway Interface
+
+The chat endpoint does not introduce new deterministic tools. However, the `OrchestratorAgent` exposes a typed method for processing chat messages:
+
+### `OrchestratorAgent.dispatch_from_chat`
+
+Not a standalone tool function — this is a method on `OrchestratorAgent` that bridges the chat UI to the existing deterministic tool layer.
+
+**Input: `ChatDispatchInput`** (Pydantic model)
+```python
+conversation_id: str         # UUID of the Conversation record
+message_id: str              # UUID of the ChatMessage (role=user) already saved
+user_content: str            # Raw user natural-language message (max 4000 chars)
+api_key_id: str              # UUID of the authenticated APIKey
+```
+
+**Output: `ChatDispatchOutput`** (Pydantic model)
+```python
+run_id: str | None           # UUID of created AnalysisRun; None if agent asked follow-up Q
+assistant_message_id: str    # UUID of ChatMessage(role=assistant) created
+needs_clarification: bool    # True if agent could not fully resolve RunConfig
+clarification_prompt: str | None  # Follow-up question to display if needs_clarification=True
+```
+
+**Behaviour contract:**
+
+**Sample and genome resolution (anti-hallucination constraint):**
+Before calling the LLM, the method MUST:
+1. Query the DB for all `Sample` records accessible to `api_key_id` (via project ownership).
+2. Query the DB for all registered `ReferenceGenome` records.
+3. Include both lists (id, name, condition, sample_type for samples; id, name, build for genomes) in the LLM system prompt as structured JSON.
+4. The LLM MUST select `sample_ids` and `genome_id` by exact UUID match from these provided lists only. It must NEVER generate or infer UUIDs from free text.
+5. After LLM selection, re-validate that every selected UUID exists in the DB before constructing RunConfig. Raise `ToolValidationError` if any ID is not found.
+
+**LLM completion mode:** The intent-parsing and response-generation calls inside this method MUST use `stream=True` (streaming completions). Each streamed token chunk is published immediately as a `{ "type": "token", "payload": { "message_id": ..., "token": ... } }` frame to the Redis channel `conv:{conversation_id}`. This enables real-time token streaming in the chat UI.
+
+**ChatMessage commit timing:** The arq worker accumulates all streamed tokens in memory. After the full response is assembled and the `done` frame has been published to Redis, the worker writes a single `ChatMessage(role=assistant, content=<full_accumulated_text>)` to the DB. If the worker crashes before this commit, the assistant message is absent from history (safe failure — the user can re-send). Partial commits are forbidden.
+
+**tool_call frame summary field:** The `summary` field in `tool_call` WS frames MUST be a JSON-serialized excerpt of the validated `ToolOutput` Pydantic model (e.g., `{"significant_genes": 423, "total_genes": 18000}`). It must NOT be LLM-generated prose. LLM prose summaries appear only in `token` frames.
+
+- If `user_content` is ambiguous, the method:
+  1. Streams clarification question as `token` frames.
+  2. Publishes `done` frame with `run_id: null`.
+  3. Writes `ChatMessage(role=assistant)` with the clarification text.
+  4. Returns `ChatDispatchOutput(run_id=None, needs_clarification=True, clarification_prompt=<text>)`.
+  5. Does NOT create an `AnalysisRun`.
+- If `user_content` resolves to a complete `RunConfig`:
+  1. Pydantic-validates the RunConfig (same rules as `POST /runs`; same parameter guardrails from Rule 5).
+  2. Sets `AnalysisRun.conversation_id` and `AnalysisRun.triggering_message_id` for audit trail.
+  3. Creates `AnalysisRun`, enqueues arq pipeline job.
+  4. Streams acknowledgement as `token` frames; publishes `done` frame with `run_id`.
+  5. Writes `ChatMessage(role=assistant)` with acknowledgement text.
+  6. Returns `ChatDispatchOutput(run_id=<uuid>, needs_clarification=False, ...)`.
+- The method must never write LLM-generated numerical values to `AnalysisRun.run_config`; all numerical parameters come from Pydantic defaults or validated user-specified values.
+- Redis channel for streaming: `conv:{conversation_id}`.
+
+---
+
 ## Versioning
 Tool contracts are versioned alongside the codebase.
 Any breaking change to an Input or Output schema requires a new task and review.

@@ -25,6 +25,7 @@ One Orchestrator agent decomposes user intent and dispatches to specialist sub-a
 | Cloud | AWS S3, AWS Batch |
 | Testing | pytest |
 | Language | Python (primary), R (DESeq2, Reactome) |
+| **Frontend** | **React / Next.js 14 (TypeScript), Tailwind CSS, shadcn/ui, React Query, react-markdown** |
 
 ## Safety Rules
 - **LLMs must NOT perform numerical calculations** — all quantitative steps (alignment, counting, DE, variant calling) run as deterministic Python/R tool calls.
@@ -44,21 +45,34 @@ agent_rnaseq/
 │       ├── api_contracts.md
 │       ├── tool_contracts.md
 │       └── safety_policy.md
-├── tasks/           # Implementation task files
+├── tasks/               # Backend implementation task files
+├── tasks_frontend/      # Frontend implementation task files
 ├── src/
-│   ├── agents/      # Orchestrator + specialist agents
-│   ├── tools/       # Deterministic tool wrappers
-│   ├── workflows/   # Nextflow pipeline configs
-│   ├── api/         # FastAPI routers
-│   ├── db/          # SQLAlchemy models + migrations
-│   ├── schemas/     # Pydantic schemas
-│   ├── streamlit/   # Visualization app
-│   └── r/           # R scripts (DESeq2, Reactome)
+│   ├── agents/          # Orchestrator + specialist agents
+│   ├── tools/           # Deterministic tool wrappers
+│   ├── workflows/       # Nextflow pipeline configs
+│   ├── api/             # FastAPI routers
+│   ├── db/              # SQLAlchemy models + migrations
+│   ├── schemas/         # Pydantic schemas
+│   ├── streamlit/       # Visualization app
+│   └── r/               # R scripts (DESeq2, Reactome)
+├── frontend/            # Next.js 14 Chat UI (TypeScript)
+│   ├── src/
+│   │   ├── app/         # Next.js App Router pages
+│   │   ├── components/  # Reusable UI components
+│   │   ├── hooks/       # Custom React hooks
+│   │   ├── lib/         # API client, types, utilities
+│   │   ├── contexts/    # React context providers
+│   │   └── providers/   # React Query, Auth providers
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── tailwind.config.ts
+│   └── next.config.ts
 ├── tests/
 ├── docker/
 ├── nextflow/
 └── examples/
-    └── scrnaseq/    # Single-cell example dataset + notebook
+    └── scrnaseq/        # Single-cell example dataset + notebook
 ```
 
 ## Key Conventions
@@ -68,6 +82,17 @@ agent_rnaseq/
 - No LLM-generated numbers may be written to the database.
 - R scripts are called as subprocesses; results parsed and validated in Python.
 - AWS credentials come from environment variables / IAM roles; never hardcoded.
+
+## Frontend Conventions
+- All frontend code lives in `frontend/` and is TypeScript-strict (`"strict": true` in tsconfig).
+- Use shadcn/ui components; do not add raw Radix UI or MUI primitives directly.
+- All API calls go through `frontend/src/lib/api.ts`; never call `fetch` directly in components.
+- API key stored in localStorage under key `rnaseq_api_key`; never in sessionStorage, cookies, or URL params.
+- User-supplied content rendered only through `react-markdown` with restricted HTML — never via `dangerouslySetInnerHTML`.
+- WebSocket connections managed in custom hooks (`useRunLogStream`, `useConversationStream`); never in components directly.
+- Server state managed with React Query; client-only UI state with `useState`/`useReducer`.
+- No `any` TypeScript annotations; all API response types defined in `frontend/src/lib/types.ts`.
+- Run `npm run lint` and `npm run build` before committing frontend changes.
 
 ## Running Tests
 ```bash
@@ -89,6 +114,12 @@ make docker-push
 docker compose -f docker/docker-compose.yml \
                -f docker/docker-compose.test.yml \
                up --abort-on-container-exit --exit-code-from test-runner
+
+# Frontend development server (proxies API calls to localhost:8000)
+cd frontend && npm install && npm run dev
+
+# Build frontend static files (output to frontend/out/)
+make frontend-build
 ```
 
 See `docs/deployment.md` for full production deployment instructions (ECS, AWS Batch, Kubernetes).

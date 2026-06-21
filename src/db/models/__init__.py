@@ -12,6 +12,7 @@ from src.db.models.results import (
     VariantCall,
 )
 from src.db.models.run import AnalysisRun, Artifact, PipelineStage
+from src.db.models.conversation import ChatMessage, Conversation
 
 __all__ = [
     "APIKey",
@@ -28,4 +29,6 @@ __all__ = [
     "SplicingResult",
     "VariantCall",
     "ScRNAClusterResult",
+    "Conversation",
+    "ChatMessage",
 ]
