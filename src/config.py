@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    cors_allow_origins: str = ""  # comma-separated; empty means CORS disabled
+    cors_allow_origins: str = "http://localhost:3000"  # comma-separated; set to "" in production (same-origin)
 
     # ── AWS (all optional) ────────────────────────────────────────────────────
     aws_default_region: str = "us-east-1"

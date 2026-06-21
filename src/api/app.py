@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 
 from src.api.errors import http_exception_handler, rate_limit_handler, validation_exception_handler
@@ -62,6 +65,12 @@ def create_app() -> FastAPI:
     app.include_router(ws_router, prefix=_v1)
     app.include_router(conversations_router, prefix=_v1)
     app.include_router(ws_conv_router, prefix=_v1)
+
+    # Mount Next.js static build at /app — silently skipped if out dir doesn't exist
+    # (e.g. during backend-only development or pytest runs without a frontend build)
+    frontend_out = os.getenv("FRONTEND_OUT_DIR", "frontend/out")
+    if os.path.isdir(frontend_out):
+        app.mount("/app", StaticFiles(directory=frontend_out, html=True), name="frontend")
 
     return app
 
