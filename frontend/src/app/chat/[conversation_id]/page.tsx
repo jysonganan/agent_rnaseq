@@ -1,21 +1,14 @@
-// Stub — conversation thread implemented in TASK_FE_05
-// Static export requires at least one param; real IDs come from the API at runtime.
+// Server component — exports generateStaticParams without "use client".
+// All interactive state lives in ConversationPageClient.
+import { ConversationPageClient } from "@/components/chat/ConversationPageClient"
+
+// Static export requires ≥1 param; real IDs are resolved client-side at runtime.
 export const generateStaticParams = async () => [{ conversation_id: "_" }]
 
-interface Props {
+export default function ConversationPage({
+  params: { conversation_id },
+}: {
   params: { conversation_id: string }
-}
-
-export default function ConversationPage({ params }: Props) {
-  return (
-    <div className="flex h-full items-center justify-center p-8">
-      <div className="text-center space-y-2">
-        <h1 className="text-xl font-semibold">Conversation</h1>
-        <p className="text-sm text-muted-foreground font-mono">{params.conversation_id}</p>
-        <p className="text-xs text-muted-foreground">
-          Chat thread — implemented in TASK_FE_05
-        </p>
-      </div>
-    </div>
-  )
+}) {
+  return <ConversationPageClient conversationId={conversation_id} />
 }
