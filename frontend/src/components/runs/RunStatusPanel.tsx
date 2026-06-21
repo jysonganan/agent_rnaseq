@@ -1,80 +1,15 @@
 "use client"
 
 import Link from "next/link"
-import {
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Loader2,
-  Ban,
-  AlertCircle,
-  ArrowLeft,
-  CalendarDays,
-} from "lucide-react"
+import { XCircle, Loader2, ArrowLeft, CalendarDays } from "lucide-react"
 import { useRun } from "@/hooks/useRuns"
+import { RunStatusBadge } from "./RunStatusBadge"
 import { StageProgressBar } from "./StageProgressBar"
 import { StageTable } from "./StageTable"
 import { ArtifactList } from "./ArtifactList"
 import { RunLogTail } from "./RunLogTail"
 import { CancelRunButton } from "./CancelRunButton"
 import type { RunStatus } from "@/lib/types"
-
-// ── Run-level status badge ────────────────────────────────────────────────────
-
-interface RunStatusBadgeConfig {
-  label: string
-  className: string
-  icon: React.ReactNode
-}
-
-function runStatusConfig(status: RunStatus): RunStatusBadgeConfig {
-  switch (status) {
-    case "pending":
-      return {
-        label: "Pending",
-        className: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
-        icon: <Clock className="h-3 w-3" />,
-      }
-    case "running":
-      return {
-        label: "Running",
-        className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-        icon: <Loader2 className="h-3 w-3 animate-spin" />,
-      }
-    case "completed":
-      return {
-        label: "Completed",
-        className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-        icon: <CheckCircle2 className="h-3 w-3" />,
-      }
-    case "failed":
-      return {
-        label: "Failed",
-        className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-        icon: <AlertCircle className="h-3 w-3" />,
-      }
-    case "cancelled":
-      return {
-        label: "Cancelled",
-        className: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
-        icon: <Ban className="h-3 w-3" />,
-      }
-  }
-}
-
-function RunStatusBadge({ status }: { status: RunStatus }) {
-  const cfg = runStatusConfig(status)
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${cfg.className}`}
-    >
-      {cfg.icon}
-      {cfg.label}
-    </span>
-  )
-}
-
-// ── Timestamp row ─────────────────────────────────────────────────────────────
 
 function Ts({ label, value }: { label: string; value: string | null }) {
   if (!value) return null
@@ -95,8 +30,6 @@ function Ts({ label, value }: { label: string; value: string | null }) {
   )
 }
 
-// ── Section wrapper ───────────────────────────────────────────────────────────
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
@@ -105,8 +38,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     </section>
   )
 }
-
-// ── Main component ────────────────────────────────────────────────────────────
 
 const ACTIVE_STATUSES: RunStatus[] = ["pending", "running"]
 
@@ -149,7 +80,6 @@ export function RunStatusPanel({ runId }: Props) {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
-      {/* Back link */}
       <Link
         href="/runs"
         className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
@@ -158,7 +88,6 @@ export function RunStatusPanel({ runId }: Props) {
         All runs
       </Link>
 
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <h1 className="text-xl font-semibold">{run.name}</h1>
@@ -180,26 +109,22 @@ export function RunStatusPanel({ runId }: Props) {
         {isActive && <CancelRunButton runId={run.id} runName={run.name} />}
       </div>
 
-      {/* Progress */}
       {totalStages > 0 && (
         <Section title="Progress">
           <StageProgressBar completed={completedStages} total={totalStages} />
         </Section>
       )}
 
-      {/* Stages */}
       <Section title="Stages">
         <StageTable stages={run.stages} />
       </Section>
 
-      {/* Live logs — only while active */}
       {isActive && (
         <Section title="Live Logs">
           <RunLogTail runId={run.id} />
         </Section>
       )}
 
-      {/* Artifacts */}
       <Section title="Artifacts">
         <ArtifactList runId={run.id} artifacts={run.artifacts} />
       </Section>
