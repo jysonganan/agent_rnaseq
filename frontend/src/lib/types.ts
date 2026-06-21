@@ -162,7 +162,54 @@ export interface SendMessageResponse {
   status: "processing" | "complete"
 }
 
-// WebSocket stream frames
+// WebSocket frame status
+export type WsStatus = "connecting" | "connected" | "error"
+
+// WebSocket payload types (payload-wrapped format from server)
+export type WsFrameType = "token" | "tool_call" | "stage_update" | "done" | "error"
+
+export interface TokenPayload {
+  message_id: string
+  token: string
+}
+
+export interface ToolCallPayload {
+  message_id: string
+  tool_name: string
+  status: string
+  summary: string | null
+}
+
+export interface StageUpdatePayload {
+  run_id: string
+  stage_name: string
+  status: string
+}
+
+export interface DonePayload {
+  message_id: string
+  run_id: string | null
+}
+
+export interface WsErrorPayload {
+  message: string
+}
+
+export interface WsFrame {
+  type: WsFrameType
+  payload: TokenPayload | ToolCallPayload | StageUpdatePayload | DonePayload | WsErrorPayload
+}
+
+// Run log frame (flat format from WS /ws/runs/{id}/logs)
+export interface RunLogFrame {
+  ts: string
+  level: "info" | "warning" | "error" | "debug"
+  stage: string
+  agent: string
+  message: string
+}
+
+// Legacy flat stream frames (kept for backwards compat)
 export interface TokenFrame {
   type: "token"
   delta: string

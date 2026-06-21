@@ -1,4 +1,4 @@
-import { http, HttpResponse } from "msw"
+import { http, HttpResponse, ws } from "msw"
 import type {
   HealthResponse,
   ConversationsListResponse,
@@ -247,3 +247,52 @@ export const handlers = [
     })
   ),
 ]
+
+// WebSocket mock links — used by the browser-side mock service worker.
+// In Jest tests, WebSocket is mocked directly (msw WS interception is browser-only).
+const WS_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(
+  /^http/,
+  "ws"
+)
+
+export const conversationStreamLink = ws.link(
+  `${WS_BASE}/ws/conversations/:id/stream`
+)
+
+export const runLogStreamLink = ws.link(`${WS_BASE}/ws/runs/:id/logs`)
+
+/** Fixture handler: emits a token + done frame on every connection (browser dev mock). */
+export const conversationStreamHandler = conversationStreamLink.addEventListener(
+  "connection",
+  ({ client }) => {
+    client.send(
+      JSON.stringify({
+        type: "token",
+        payload: { message_id: "fixture-msg", token: "Analysis complete. " },
+      })
+    )
+    client.send(
+      JSON.stringify({
+        type: "done",
+        payload: { message_id: "fixture-msg", run_id: null },
+      })
+    )
+    client.close()
+  }
+)
+
+export const runLogStreamHandler = runLogStreamLink.addEventListener(
+  "connection",
+  ({ client }) => {
+    client.send(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "info",
+        stage: "alignment",
+        agent: "alignment_agent",
+        message: "STAR alignment started for sample ctrl_1",
+      })
+    )
+    client.close()
+  }
+)
