@@ -72,7 +72,7 @@ One end-to-end pipeline execution.
 | `pipeline_type` | ENUM | NOT NULL | `bulk_rnaseq`, `scrna_seq` |
 | `alignment_mode` | ENUM | NOT NULL | `genome`, `transcriptome`, `both` |
 | `aligner` | ENUM | NOT NULL | `star`, `salmon`, `rsem` |
-| `run_config` | JSONB | NOT NULL | Full RunConfig snapshot |
+| `run_config` | JSONB | NOT NULL | Full RunConfig snapshot (includes `stages`, `sample_ids`, `de_contrasts`, `read_length`, `execution`) |
 | `agent_state` | JSONB | | LangGraph state checkpoint |
 | `error_message` | TEXT | | Set on failure |
 | `started_at` | TIMESTAMP | | |

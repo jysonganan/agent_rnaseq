@@ -54,15 +54,24 @@ def _make_stub_node(stage_name: str) -> Callable[[RunState], dict]:
     return _node
 
 
-def build_pipeline_graph() -> Any:
-    """Build and compile the LangGraph StateGraph for the RNA-seq pipeline."""
+NodeFactory = Callable[[str], Callable[[RunState], dict]]
+
+
+def build_pipeline_graph(node_factory: NodeFactory | None = None) -> Any:
+    """Build and compile the LangGraph StateGraph for the RNA-seq pipeline.
+
+    ``node_factory`` maps a stage name to its node function. When omitted, stub nodes
+    that only mark stages complete are used (graph-shape tests / planning only); real
+    execution passes ``stage_executor.stage_node_factory(...)``.
+    """
+    make_node = node_factory or _make_stub_node
     graph: StateGraph = StateGraph(RunState)
 
     graph.add_node("router", _router_node)
     graph.set_entry_point("router")
 
     for stage in ALL_PIPELINE_STAGES:
-        graph.add_node(stage, _make_stub_node(stage))
+        graph.add_node(stage, make_node(stage))
         graph.add_edge(stage, "router")
 
     stage_map: dict[str, str] = {s: s for s in ALL_PIPELINE_STAGES}

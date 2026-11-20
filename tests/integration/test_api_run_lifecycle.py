@@ -127,3 +127,39 @@ def test_cancel_already_cancelled_run_returns_409(api_client):
     api_client.post(f"/api/v1/runs/{run_id}/cancel", headers=AUTH_HEADERS)
     second_cancel = api_client.post(f"/api/v1/runs/{run_id}/cancel", headers=AUTH_HEADERS)
     assert second_cancel.status_code == 409
+
+
+# ── User-decided analysis inputs ──────────────────────────────────────────────
+
+
+def test_create_de_run_without_contrasts_returns_422(api_client):
+    payload = _create_run_payload(api_client._seed)
+    payload["stages"] = ["alignment", "quantification", "differential_expression"]
+    resp = api_client.post("/api/v1/runs", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 422
+    assert "contrast" in resp.json()["detail"]
+
+
+def test_create_run_with_unknown_condition_returns_422(api_client):
+    payload = _create_run_payload(api_client._seed)
+    payload["stages"] = ["alignment", "quantification", "differential_expression"]
+    payload["de_contrasts"] = [{"numerator": "no_such_cond", "denominator": "other"}]
+    resp = api_client.post("/api/v1/runs", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 422
+    assert "no_such_cond" in resp.json()["detail"]
+
+
+def test_create_run_self_contrast_returns_422(api_client):
+    payload = _create_run_payload(api_client._seed)
+    payload["de_contrasts"] = [{"numerator": "a", "denominator": "a"}]
+    resp = api_client.post("/api/v1/runs", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 422
+
+
+def test_create_run_unknown_sample_returns_422(api_client):
+    import uuid
+
+    payload = _create_run_payload(api_client._seed)
+    payload["sample_ids"] = [str(uuid.uuid4())]
+    resp = api_client.post("/api/v1/runs", json=payload, headers=AUTH_HEADERS)
+    assert resp.status_code == 422

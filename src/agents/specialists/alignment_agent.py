@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 from src.agents.specialists._base import BaseSpecialistAgent, _make_stage_output
 from src.db.enums import ArtifactType, StageName
@@ -19,6 +19,7 @@ class AlignmentStageInput(TypedDict):
     genome_dir: str
     output_prefix: str
     threads: int
+    alignment_mode: NotRequired[str]  # "genome" | "transcriptome" | "both"
 
 
 class AlignmentAgent(BaseSpecialistAgent):
@@ -43,6 +44,7 @@ class AlignmentAgent(BaseSpecialistAgent):
                     genome_dir=stage_input["genome_dir"],
                     output_prefix=stage_input["output_prefix"],
                     threads=stage_input.get("threads", 8),
+                    alignment_mode=stage_input.get("alignment_mode", "genome"),
                 )
             )
 
@@ -62,7 +64,11 @@ class AlignmentAgent(BaseSpecialistAgent):
 
             tool_version = star_out.tool_version
             self._complete_stage(stage, tool_version=tool_version)
-            return _make_stage_output("alignment", "completed", star_out.model_dump(), tool_version)
+            output = star_out.model_dump()
+            # Downstream stages (quant, variant, splicing, viz) consume the samtools BAM.
+            output["sorted_bam_path"] = samtools_out.sorted_bam_path
+            output["sorted_bai_path"] = samtools_out.bai_path
+            return _make_stage_output("alignment", "completed", output, tool_version)
 
         except ToolExecutionError as exc:
             self._fail_stage(stage, str(exc))

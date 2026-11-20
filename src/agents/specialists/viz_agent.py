@@ -46,15 +46,18 @@ class VizAgent(BaseSpecialistAgent):
                 )
             )
 
-            ucsc_out = generate_ucsc_tracks(
-                UCSCTrackInput(
-                    bam_paths=stage_input["bam_paths"],
-                    genome_build=stage_input["genome_build"],
-                    output_dir=stage_input["output_dir"],
-                    track_name_prefix=stage_input["track_name_prefix"],
-                    chrom_sizes_path=stage_input["chrom_sizes_path"],
+            bigwig_paths: list[str] = []
+            if stage_input["bam_paths"]:  # no alignment stage → no genome browser tracks
+                ucsc_out = generate_ucsc_tracks(
+                    UCSCTrackInput(
+                        bam_paths=stage_input["bam_paths"],
+                        genome_build=stage_input["genome_build"],
+                        output_dir=stage_input["output_dir"],
+                        track_name_prefix=stage_input["track_name_prefix"],
+                        chrom_sizes_path=stage_input["chrom_sizes_path"],
+                    )
                 )
-            )
+                bigwig_paths = ucsc_out.bigwig_paths
 
             self._write_artifact(
                 stage.id,
@@ -62,7 +65,7 @@ class VizAgent(BaseSpecialistAgent):
                 ArtifactType.streamlit_data,
                 streamlit_out.manifest_path,
             )
-            for bw_path in ucsc_out.bigwig_paths:
+            for bw_path in bigwig_paths:
                 self._write_artifact(
                     stage.id, stage_input["run_id"], ArtifactType.ucsc_track, bw_path
                 )

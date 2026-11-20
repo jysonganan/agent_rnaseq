@@ -39,7 +39,10 @@ async def process_chat_message(
 
         conv = db.query(Conversation).filter(Conversation.id == conversation_id).first()
         if conv is None or conv.deleted_at is not None:
-            logger.warning("process_chat_message: conversation %s not found or deleted, skipping", conversation_id)
+            logger.warning(
+                "process_chat_message: conversation %s not found or deleted, skipping",
+                conversation_id,
+            )
             return
 
         llm_client = OpenAI(api_key=settings.openai_api_key)
@@ -52,7 +55,10 @@ async def process_chat_message(
             api_key_id=api_key_id,
         )
 
-        await agent.dispatch_from_chat(dispatch_input, db=db, redis_client=redis_client)
+        result = await agent.dispatch_from_chat(dispatch_input, db=db, redis_client=redis_client)
+        if result.run_id is not None and redis_client is not None:
+            # Hand the persisted run to the pipeline worker (deterministic execution).
+            await redis_client.enqueue_job("run_pipeline", run_id=result.run_id)
     except Exception:
         logger.exception("process_chat_message failed for message=%s", message_id)
         with contextlib.suppress(Exception):
@@ -74,5 +80,7 @@ async def process_chat_message(
 
 
 class WorkerSettings:
+    """Deprecated: use ``src.worker.WorkerSettings``, which registers all jobs."""
+
     functions = [process_chat_message]
     redis_settings_dsn_env = "REDIS_URL"

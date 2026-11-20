@@ -1,7 +1,9 @@
+import re
 from datetime import datetime
+from typing import Self
 from uuid import UUID
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from src.db.enums import (
     Aligner,
@@ -22,10 +24,40 @@ class ExecutionConfig(OrmBase):
     memory_gb: int = Field(default=16, ge=1, le=512)
 
 
+_CONTRAST_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def default_contrast_name(numerator: str, denominator: str) -> str:
+    """Deterministic, filename-safe contrast name: ``<numerator>_vs_<denominator>``."""
+    raw = f"{numerator}_vs_{denominator}"
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw).strip("_.-") or "contrast"
+    return safe[:128]
+
+
 class DEContrast(OrmBase):
-    name: str = Field(..., max_length=128)
-    numerator: str
-    denominator: str
+    """One comparison: ``numerator`` (test) vs ``denominator`` (reference).
+
+    log2 fold change = numerator / denominator. Used by DESeq2 and rMATS.
+    """
+
+    name: str | None = Field(default=None, max_length=128)
+    numerator: str = Field(..., min_length=1, max_length=64)
+    denominator: str = Field(..., min_length=1, max_length=64)
+
+    @field_validator("numerator", "denominator", "name", mode="before")
+    @classmethod
+    def _strip(cls, v: object) -> object:
+        return v.strip() if isinstance(v, str) else v
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.numerator == self.denominator:
+            raise ValueError(f"contrast compares '{self.numerator}' with itself")
+        if not self.name:
+            self.name = default_contrast_name(self.numerator, self.denominator)
+        if not _CONTRAST_NAME_RE.match(self.name):
+            raise ValueError(f"contrast name '{self.name}' must match {_CONTRAST_NAME_RE.pattern}")
+        return self
 
 
 class AnalysisRunCreate(OrmBase):
@@ -38,6 +70,7 @@ class AnalysisRunCreate(OrmBase):
     aligner: Aligner = Aligner.star
     stages: list[StageName]
     de_contrasts: list[DEContrast] = []
+    read_length: int | None = Field(default=None, ge=1, le=1000)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     dry_run: bool = False
 

@@ -7,6 +7,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from src.agents.run_requirements import check_analysis_inputs, format_issues, sample_facts
 from src.api.auth import require_api_key
 from src.api.rate_limit import limiter
 from src.api.schemas import (
@@ -20,7 +21,7 @@ from src.api.schemas import (
 )
 from src.db.enums import RunStatus
 from src.db.models.auth import APIKey
-from src.db.models.project import RunSample
+from src.db.models.project import RunSample, Sample
 from src.db.models.run import AnalysisRun
 from src.db.session import get_db
 
@@ -46,6 +47,16 @@ async def create_run(
     db: Session = Depends(get_db),
     api_key: APIKey = Depends(require_api_key),
 ) -> RunCreatedOut:
+    samples = db.query(Sample).filter(Sample.id.in_(body.sample_ids)).all()
+    missing = {str(i) for i in body.sample_ids} - {str(s.id) for s in samples}
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Unknown sample_ids: {sorted(missing)}")
+    issues = check_analysis_inputs(
+        [s.value for s in body.stages], sample_facts(samples), body.de_contrasts, body.read_length
+    )
+    if issues:
+        raise HTTPException(status_code=422, detail=format_issues(issues))
+
     run = AnalysisRun(
         project_id=body.project_id,
         genome_id=body.genome_id,

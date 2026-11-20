@@ -177,6 +177,7 @@ Create and launch a new analysis run.
   "de_contrasts": [
     { "name": "treatment_vs_control", "numerator": "treatment", "denominator": "control" }
   ],
+  "read_length": 100,
   "execution": {
     "executor": "local",
     "cpus": 8,
@@ -185,12 +186,33 @@ Create and launch a new analysis run.
 }
 ```
 
+**Analysis inputs (user decisions — never inferred by the system)**
+
+| Field | Required when | Rules |
+|---|---|---|
+| `de_contrasts` | `differential_expression` or `splicing` in `stages` | ≥1 entry. Each `{name?, numerator, denominator}`: `numerator` = test condition, `denominator` = reference condition (log2FC = numerator / denominator). Both must be a `condition` of at least one selected sample and must differ. Any number of conditions and contrasts is allowed (e.g. `A vs ctrl`, `B vs ctrl`, `A vs B`). `name` is optional; default `<numerator>_vs_<denominator>`; must match `^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$` and be unique within the run. |
+| `read_length` | `splicing` in `stages`, unless every selected sample has the same `metadata.read_length` | Integer 1–1000 (bp). Passed to rMATS. |
+| sample `condition` | `differential_expression` or `splicing` in `stages` | Every selected sample must have a non-empty `condition`. |
+
+Splicing (rMATS) runs once per contrast: group 1 = numerator samples, group 2 = denominator samples.
+DESeq2 fits `~ condition` over all selected samples and extracts each contrast; the design must have
+more samples than distinct conditions (i.e. at least one replicate somewhere).
+
 **Response 202**
 ```json
 {
   "run_id": "uuid",
   "status": "pending",
   "message": "Run queued"
+}
+```
+
+**Response 422** — analysis inputs missing or inconsistent with the selected samples:
+```json
+{
+  "type": "validation-error",
+  "status": 422,
+  "detail": "Differential expression needs at least one contrast. Available conditions: control (3), treated (3)."
 }
 ```
 
@@ -612,7 +634,7 @@ The endpoint:
 3. Updates `Conversation.title` from first message if title is still `"New conversation"`.
 4. Enqueues `process_chat_message` arq task.
 5. Returns immediately — agent response arrives via WebSocket stream.
-6. If the agent cannot infer a complete `RunConfig`, it streams a clarification question as `token` frames and a `done` frame with `run_id: null`; `run_id` is also `null` in the HTTP response.
+6. If the agent cannot infer a complete `RunConfig`, it streams a clarification question as `token` frames and a `done` frame with `run_id: null`; `run_id` is also `null` in the HTTP response. In particular, when DE or splicing is requested the agent asks the user for contrasts (listing the available conditions) and, for splicing, the read length, unless the user already stated them. The user's reply is interpreted together with the earlier messages of the conversation.
 7. On reconnect after WS disconnect, the client must re-fetch `GET /conversations/{id}/messages` to catch up on any frames missed during disconnection.
 
 ---

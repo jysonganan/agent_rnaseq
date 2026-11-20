@@ -20,6 +20,7 @@ from src.db.enums import (
     StageName,
     StageStatus,
 )
+from src.schemas.run import DEContrast
 
 # ── Genomes ────────────────────────────────────────────────────────────────────
 
@@ -138,7 +139,8 @@ class CreateRunIn(BaseModel):
     alignment_mode: AlignmentMode
     aligner: Aligner
     stages: list[StageName] = Field(..., min_length=1)
-    de_contrasts: list[dict] = Field(default_factory=list)
+    de_contrasts: list[DEContrast] = Field(default_factory=list)
+    read_length: int | None = Field(default=None, ge=1, le=1000)
     execution: ExecutionConfigIn = Field(default_factory=ExecutionConfigIn)
 
 

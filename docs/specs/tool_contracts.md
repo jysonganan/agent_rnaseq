@@ -315,6 +315,40 @@ downregulated: int
 not_significant: int
 ```
 
+### `build_count_matrix`
+Merges per-sample quantification outputs into the gene x sample CSV consumed by
+`run_deseq2`. Pure Python, no subprocess. Values are copied verbatim from the
+tool outputs (no normalisation); genes absent from a sample are written as `0`.
+
+**Input: `CountMatrixInput`**
+```python
+sample_count_paths: dict[str, str]   # sample_id -> per-sample quant file (insertion order = column order)
+method: Literal["star_htseq", "salmon", "rsem"]
+output_path: str                     # CSV written here
+```
+Per-method column read: htseq → 2nd column (rows starting `__` dropped);
+salmon `quant.sf` → `NumReads`; rsem `genes.results` → `expected_count`.
+
+**Output: `CountMatrixOutput`**
+```python
+counts_matrix_path: str
+n_genes: int
+n_samples: int
+```
+
+### `write_sample_metadata`
+Writes the `sample_id,condition` CSV consumed by `run_deseq2`.
+
+**Input: `SampleMetadataInput`**
+```python
+sample_conditions: dict[str, str]    # sample_id -> condition (min 2 samples)
+output_path: str
+```
+
+**Output:** `str` — the written path.
+
+Raises `ToolValidationError` on an empty/missing condition or fewer than two distinct conditions.
+
 ---
 
 ## 7. GSEA / Pathway Enrichment Tools
@@ -609,6 +643,12 @@ Before calling the LLM, the method MUST:
 
 **tool_call frame summary field:** The `summary` field in `tool_call` WS frames MUST be a JSON-serialized excerpt of the validated `ToolOutput` Pydantic model (e.g., `{"significant_genes": 423, "total_genes": 18000}`). It must NOT be LLM-generated prose. LLM prose summaries appear only in `token` frames.
 
+- **Conversation context:** the intent-parsing call receives the last 20 user/assistant messages of the conversation (oldest first) followed by `user_content`, so an answer to a clarification question completes the earlier request.
+- **Analysis inputs are user decisions** (see `POST /runs` → "Analysis inputs"). The LLM may only copy contrasts and read length the user explicitly stated; it must never pick a comparison direction or a read length itself. Deterministic guards after parsing:
+  - every contrast's `numerator`/`denominator` must be a condition of a selected sample **and** appear in the user's own messages (case-insensitive);
+  - `read_length` must appear as a literal number in the user's own messages;
+  - contrast `name` is always generated as `<numerator>_vs_<denominator>` (never LLM-authored).
+  Values failing a guard are dropped; if a required input is then missing, the method asks for it with a **deterministic** question (no LLM) that lists the available conditions and their sample counts and gives the `<test> vs <reference>` format.
 - If `user_content` is ambiguous, the method:
   1. Streams clarification question as `token` frames.
   2. Publishes `done` frame with `run_id: null`.
