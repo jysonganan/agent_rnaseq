@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from src.agents.router import build_pipeline_graph
 from src.agents.run_requirements import InputIssue, SampleFacts
+from src.agents.sanitize import sanitize_text
 from src.agents.state import RunState
 from src.config import get_settings
 from src.db.enums import Executor, PipelineType, StageName
@@ -165,6 +166,7 @@ class OrchestratorAgent:
         *,
         output_root: str | None = None,
         mock_registry: Any = None,
+        events: Any = None,
     ) -> dict[str, Any]:
         """Execute a persisted AnalysisRun by dispatching each stage to its specialist.
 
@@ -206,6 +208,8 @@ class OrchestratorAgent:
             mock_registry=mock_registry,
             llm_client=self._client,
         )
+        if events is not None:
+            runtime.events = events
         graph = build_pipeline_graph(stage_node_factory(runtime))
 
         checkpoint = dict(run.agent_state or {})
@@ -611,14 +615,7 @@ class ChatDispatchOutput(BaseModel):
 
 # ── Content sanitization (safety_policy Rule 11.6) ────────────────────────────
 
-_PATH_RE = re.compile(r"(/[a-zA-Z0-9_/.\-]+){2,}")
-_AWS_KEY_RE = re.compile(r"AKIA[0-9A-Z]{16}")
-_TRACEBACK_RE = re.compile(r"Traceback \(most recent call last\):.*", re.DOTALL)
-
 
 def _sanitize_chat_content(text: str) -> str:
     """Strip file paths, AWS credential patterns, and tracebacks from agent content."""
-    text = _PATH_RE.sub("[PATH]", text)
-    text = _AWS_KEY_RE.sub("[REDACTED]", text)
-    text = _TRACEBACK_RE.sub("[TRACEBACK REMOVED]", text)
-    return text.strip()
+    return sanitize_text(text)

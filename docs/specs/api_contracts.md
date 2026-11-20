@@ -182,9 +182,22 @@ Create and launch a new analysis run.
     "executor": "local",
     "cpus": 8,
     "memory_gb": 32
-  }
+  },
+  "dry_run": false
 }
 ```
+
+`dry_run` (default `false`) runs the same LangGraph pipeline with mock tool outputs — no
+subprocesses and no per-stage DB writes. It can only be set in this request body, never by the
+LLM. `execution.executor` must currently be `local` for agent-driven execution; other values are
+accepted here but the run fails at start with an explanatory `error_message`.
+
+**Execution**: the run is queued (ARQ `run_pipeline`) and executed by
+`OrchestratorAgent.execute_run`, whose LangGraph stage nodes dispatch to the specialist sub-agents
+(see `docs/architecture.md` §3.1). Progress: `GET /runs/{id}` (`status`, per-stage rows),
+`WS /ws/runs/{id}/logs`, and — for chat-originated runs — `stage_update`/`tool_call` frames on the
+conversation stream. On failure `AnalysisRun.error_message` holds a sanitized message (no file
+paths); re-enqueueing a `failed` run resumes after the last completed stage/sample.
 
 **Analysis inputs (user decisions — never inferred by the system)**
 
@@ -519,6 +532,10 @@ Streams agent log messages in real time.
 }
 ```
 
+Published by the stage executor on Redis channel `logs:{run_id}` at stage start/finish, per
+sample/contrast, and on failure (`level: "error"`). `agent` is the specialist module name
+(`qc_agent`, `alignment_agent`, `de_agent`, …). Messages are sanitized (no file paths).
+
 ---
 
 ### Conversations (Chat UI)
@@ -666,7 +683,15 @@ Streams agent response tokens and pipeline events for a conversation.
 }
 ```
 
-`stage_update` — pipeline stage status change:
+`tool_call` frames for pipeline runs are published by the stage executor for chat-originated runs:
+`message_id` is the assistant message that launched the run, `tool_name` the stage's primary tool
+function (`run_fastqc`, `run_star_align`, `run_htseq_count`/`run_salmon_quant`/`run_rsem`,
+`run_deseq2`, …), `status` is `running` → `completed` | `failed`, and `summary` is `null` or a
+JSON string excerpted from the validated tool output containing numbers only (e.g.
+`{"n_samples": 4}` or `{"contrast_summaries": {"B_vs_A": {"upregulated": 120, ...}}}`).
+
+`stage_update` — pipeline stage status change (`running`, `completed`, `failed`), published for
+chat-originated runs:
 ```json
 {
   "type": "stage_update",
@@ -687,6 +712,8 @@ Streams agent response tokens and pipeline events for a conversation.
 ```json
 { "type": "error", "payload": { "message": "Stage failed: alignment" } }
 ```
+Published when a chat-originated run fails (`Stage failed: <stage>`) or cannot start
+(`Run could not start: <sanitized reason>`).
 
 ---
 

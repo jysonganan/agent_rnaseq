@@ -8,6 +8,7 @@ merging, specialist DB writes, checkpointing, resume and cancellation.
 from __future__ import annotations
 
 import csv
+import json
 import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -229,6 +230,23 @@ def _agent() -> OrchestratorAgent:
     return OrchestratorAgent(llm_client=MagicMock())
 
 
+class RecordingEvents:
+    def __init__(self) -> None:
+        self.frames: list[tuple] = []
+
+    def stage_update(self, stage: str, status: str) -> None:
+        self.frames.append(("stage_update", stage, status))
+
+    def tool_call(self, tool_name: str, status: str, summary: str | None = None) -> None:
+        self.frames.append(("tool_call", tool_name, status, summary))
+
+    def log(self, level: str, stage, agent, message: str) -> None:  # type: ignore[no-untyped-def]
+        self.frames.append(("log", level, stage, message))
+
+    def run_error(self, message: str) -> None:
+        self.frames.append(("error", message))
+
+
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
 
@@ -430,7 +448,9 @@ class TestMultiCondition:
 class TestRunner:
     def test_execute_run_sync_sets_terminal_status(self, db, tmp_path, tools) -> None:
         run_id = _seed_run(db, tmp_path, ["qc"])
-        status = execute_run_sync(db, run_id, output_root=str(tmp_path / "out"))
+        status = execute_run_sync(
+            db, run_id, events=RecordingEvents(), output_root=str(tmp_path / "out")
+        )
         run = db.get(AnalysisRun, uuid.UUID(run_id))
         assert status == RunStatus.completed
         assert run.status == RunStatus.completed
@@ -439,7 +459,10 @@ class TestRunner:
     def test_execute_run_sync_records_failure(self, db, tmp_path, tools) -> None:
         run_id = _seed_run(db, tmp_path, ["alignment"])
         tools["star"].side_effect = ToolExecutionError("star", 1, "oom")
-        assert execute_run_sync(db, run_id, output_root=str(tmp_path)) == RunStatus.failed
+        assert (
+            execute_run_sync(db, run_id, events=RecordingEvents(), output_root=str(tmp_path))
+            == RunStatus.failed
+        )
         run = db.get(AnalysisRun, uuid.UUID(run_id))
         assert "oom" in run.error_message
 
@@ -447,5 +470,167 @@ class TestRunner:
         run_id = _seed_run(db, tmp_path, ["qc"])
         db.get(AnalysisRun, uuid.UUID(run_id)).status = RunStatus.completed
         db.commit()
-        assert execute_run_sync(db, run_id, output_root=str(tmp_path)) == RunStatus.completed
+        assert (
+            execute_run_sync(db, run_id, events=RecordingEvents(), output_root=str(tmp_path))
+            == RunStatus.completed
+        )
         assert tools["fastqc"].call_count == 0
+
+
+class TestReviewFixes:
+    def test_resume_skips_finished_samples_without_duplicate_rows(
+        self, db, tmp_path, tools
+    ) -> None:
+        run_id = _seed_run(db, tmp_path, ["alignment"])
+        calls = {"n": 0}
+
+        def _flaky(inp):  # type: ignore[no-untyped-def]
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise ToolExecutionError("star", 137, "killed")
+            return _fake_star(inp)
+
+        tools["star"].side_effect = _flaky
+        final = _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        assert final["failed_stage"] == "alignment"
+        assert len(final["stage_outputs"]["alignment"]["samples"]) == 2
+        assert final["stage_outputs"]["alignment"]["partial"] is True
+
+        tools["star"].side_effect = _fake_star
+        final = _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        assert final["failed_stage"] is None
+        assert calls["n"] == 3 and tools["star"].call_count == 5  # only 2 re-attempted
+        rows = db.query(PipelineStage).all()
+        assert sorted(r.status for r in rows).count(StageStatus.completed) == 4
+        assert [r.status for r in rows].count(StageStatus.failed) == 1
+        assert len({r.sample_id for r in rows if r.status == StageStatus.completed}) == 4
+
+    def test_failed_stage_rolls_back_partial_results_keeps_audit_row(
+        self, db, tmp_path, tools
+    ) -> None:
+        run_id = _seed_run(db, tmp_path, BULK_STAGES[1:4])
+        # DEG rows are added, then writing the artifact explodes.
+        with patch(
+            "src.agents.specialists.de_agent.DEAgent._write_artifact",
+            side_effect=OSError("disk full at /data/x/y"),
+        ):
+            final = _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        assert final["failed_stage"] == "differential_expression"
+        assert db.query(DEGResult).count() == 0
+        de_row = (
+            db.query(PipelineStage).filter_by(stage_name=StageName.differential_expression).one()
+        )
+        assert de_row.status == StageStatus.failed
+        assert de_row.tool_name == "deseq2"
+        assert de_row.input_params["contrasts"][0]["numerator"] == "treated"
+
+    def test_error_message_is_sanitized(self, db, tmp_path, tools) -> None:
+        run_id = _seed_run(db, tmp_path, ["alignment"])
+        tools["star"].side_effect = ToolExecutionError(
+            "star", 1, "cannot open /ref/secret/genome/SA"
+        )
+        final = _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        assert "/ref/secret" not in final["error_message"]
+        assert "[PATH]" in final["error_message"]
+
+    def test_audit_fields_recorded(self, db, tmp_path, tools) -> None:
+        run_id = _seed_run(db, tmp_path, ["qc"])
+        _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        row = db.query(PipelineStage).first()
+        assert row.started_at is not None and row.completed_at is not None
+        assert row.executor == "local"
+        assert row.input_params["fastq_paths"]
+
+    def test_artifact_checksum_for_local_files(self, db, tmp_path, tools) -> None:
+        from src.db.models.run import Artifact
+
+        report = tmp_path / "fastqc.html"
+        report.write_text("<html></html>")
+        tools["fastqc"].return_value = tools["fastqc"].return_value.model_copy(
+            update={"report_html_paths": [str(report)]}
+        )
+        run_id = _seed_run(db, tmp_path, ["qc"])
+        _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        art = db.query(Artifact).first()
+        assert art.file_size_bytes == len("<html></html>")
+        assert len(art.checksum_md5) == 32
+
+    def test_events_published(self, db, tmp_path, tools) -> None:
+        run_id = _seed_run(db, tmp_path, ["qc", "alignment"])
+        events = RecordingEvents()
+        _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"), events=events)
+        updates = [f for f in events.frames if f[0] == "stage_update"]
+        assert updates == [
+            ("stage_update", "qc", "running"),
+            ("stage_update", "qc", "completed"),
+            ("stage_update", "alignment", "running"),
+            ("stage_update", "alignment", "completed"),
+        ]
+        done_calls = [f for f in events.frames if f[0] == "tool_call" and f[2] == "completed"]
+        assert done_calls[0][1] == "run_fastqc"
+        logs = [f for f in events.frames if f[0] == "log"]
+        assert all(f[2] in ("qc", "alignment") for f in logs)
+        assert json.loads(done_calls[0][3]) == {"n_samples": 4}
+
+    def test_runner_publishes_error_frame_on_failure(self, db, tmp_path, tools) -> None:
+        run_id = _seed_run(db, tmp_path, ["alignment"])
+        tools["star"].side_effect = ToolExecutionError("star", 1, "oom")
+        events = RecordingEvents()
+        execute_run_sync(db, run_id, events=events, output_root=str(tmp_path))
+        assert ("error", "Stage failed: alignment") in events.frames
+
+
+class TestOutputExcerpt:
+    def test_numbers_kept_paths_dropped(self) -> None:
+        from src.agents.run_events import output_excerpt
+
+        out = {
+            "output": {
+                "results_paths": {"c": "/x/y.csv"},
+                "contrast_summaries": {"c": {"upregulated": 3, "downregulated": 1}},
+            }
+        }
+        assert json.loads(output_excerpt(out)) == {
+            "contrast_summaries": {"c": {"downregulated": 1, "upregulated": 3}}
+        }
+
+    def test_redis_events_frames(self) -> None:
+        from src.agents.run_events import RedisRunEvents
+
+        redis = MagicMock()
+        ev = RedisRunEvents(redis, "r1", conversation_id="c1", message_id="m1")
+        ev.stage_update("qc", "running")
+        ev.tool_call("QCAgent", "completed", '{"n_samples": 2}')
+        ev.log("error", "qc", "QCAgent", "failed reading /a/b/c")
+        ev.run_error("Stage failed: qc")
+        sent = [(c.args[0], json.loads(c.args[1])) for c in redis.publish.call_args_list]
+        assert sent[0] == (
+            "conv:c1",
+            {
+                "type": "stage_update",
+                "payload": {"run_id": "r1", "stage_name": "qc", "status": "running"},
+            },
+        )
+        assert sent[1][1]["payload"]["message_id"] == "m1"
+        assert sent[2][0] == "logs:r1" and "/a/b/c" not in sent[2][1]["message"]
+        assert sent[3] == ("conv:c1", {"type": "error", "payload": {"message": "Stage failed: qc"}})
+
+    def test_no_conversation_frames_for_api_runs(self) -> None:
+        from src.agents.run_events import RedisRunEvents
+
+        redis = MagicMock()
+        ev = RedisRunEvents(redis, "r1")
+        ev.stage_update("qc", "running")
+        ev.log("info", "qc", "QCAgent", "hi")
+        assert [c.args[0] for c in redis.publish.call_args_list] == ["logs:r1"]
+
+
+def test_dry_run_flag_from_api_uses_mocks_not_tools(db, tmp_path, tools) -> None:
+    run_id = _seed_run(db, tmp_path, ["qc", "alignment"])
+    run = db.get(AnalysisRun, uuid.UUID(run_id))
+    run.run_config = {**run.run_config, "dry_run": True}
+    db.commit()
+    status = execute_run_sync(db, run_id, events=RecordingEvents(), output_root=str(tmp_path))
+    assert status == RunStatus.completed
+    assert tools["fastqc"].call_count == 0 and tools["star"].call_count == 0
+    assert db.query(PipelineStage).count() == 0

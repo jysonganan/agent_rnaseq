@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import abc
+import hashlib
+import json
+import os
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from src.agents.base_agent import BaseStageAgent, MockToolRegistry
 from src.agents.state import RunState
-from src.db.enums import ArtifactType, StageName, StageStatus
+from src.db.enums import ArtifactType, Executor, StageName, StageStatus
 from src.db.models.run import Artifact, PipelineStage
 
 
@@ -52,6 +56,18 @@ class BaseSpecialistAgent(BaseStageAgent, abc.ABC):
         super().__init__(stage_name, dry_run=dry_run, mock_registry=mock_registry)
         self.db = db
         self.llm_client = llm_client
+        self._audit_input: dict[str, Any] | None = None
+
+    def run_stage(self, stage_input: Any) -> dict[str, Any]:
+        """Run one stage invocation, recording ``stage_input`` as the audit input.
+
+        Used by the LangGraph executor; ``run()`` may still be called directly.
+        """
+        self._audit_input = json.loads(json.dumps(dict(stage_input), default=str))
+        try:
+            return self.run(stage_input)
+        finally:
+            self._audit_input = None
 
     # ── LangGraph bridge ────────────────────────────────────────────────────────
 
@@ -82,6 +98,9 @@ class BaseSpecialistAgent(BaseStageAgent, abc.ABC):
             stage_name=stage_name,
             status=StageStatus.running,
             tool_name=tool_name,
+            input_params=self._audit_input,
+            executor=Executor.local,
+            started_at=datetime.now(UTC),
         )
         self.db.add(stage)
         self.db.flush()
@@ -96,10 +115,12 @@ class BaseSpecialistAgent(BaseStageAgent, abc.ABC):
         stage.status = StageStatus.completed
         stage.tool_version = tool_version
         stage.output_summary = output_summary
+        stage.completed_at = datetime.now(UTC)  # type: ignore[assignment]
         self.db.flush()
 
     def _fail_stage(self, stage: PipelineStage, error_msg: str) -> None:
         stage.status = StageStatus.failed
+        stage.completed_at = datetime.now(UTC)  # type: ignore[assignment]
         self.db.flush()
 
     def _write_artifact(
@@ -109,11 +130,25 @@ class BaseSpecialistAgent(BaseStageAgent, abc.ABC):
         artifact_type: ArtifactType,
         path: str,
     ) -> None:
+        size, md5 = _file_size_and_md5(path)
         artifact = Artifact(
             stage_id=stage_id,
             run_id=uuid.UUID(run_id),
             artifact_type=artifact_type,
             path=path,
+            file_size_bytes=size,
+            checksum_md5=md5,
         )
         self.db.add(artifact)
         self.db.flush()
+
+
+def _file_size_and_md5(path: str) -> tuple[int | None, str | None]:
+    """Size and MD5 of a local artifact (safety_policy Rule 10); ``None`` if not local."""
+    if not os.path.isfile(path):
+        return None, None
+    digest = hashlib.md5(usedforsecurity=False)
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return os.path.getsize(path), digest.hexdigest()

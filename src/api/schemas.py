@@ -142,6 +142,7 @@ class CreateRunIn(BaseModel):
     de_contrasts: list[DEContrast] = Field(default_factory=list)
     read_length: int | None = Field(default=None, ge=1, le=1000)
     execution: ExecutionConfigIn = Field(default_factory=ExecutionConfigIn)
+    dry_run: bool = False  # mock tool outputs; set only in the request body, never by an LLM
 
 
 class StageOut(BaseModel):

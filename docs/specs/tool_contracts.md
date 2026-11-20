@@ -599,7 +599,50 @@ cellranger_count_output.json
 scanpy_output.json
 ```
 
-Each fixture is a JSON serialization of the corresponding `ToolOutput` Pydantic model. The `MockToolRegistry` in `src/tools/mock_registry.py` maps tool function names to fixture paths and is injected at the `BaseStageAgent` level when `dry_run=True`.
+Each fixture is a JSON serialization of the corresponding `ToolOutput` Pydantic model. The `MockToolRegistry` (currently `src/agents/base_agent.py`) maps stage names to fixture dicts and is injected at the `BaseStageAgent` level when `dry_run=True`. `OrchestratorAgent.execute_run(..., mock_registry=...)` passes it to every specialist; when none is given, dry-run stages complete with an empty output. Loading the fixture files from `tests/fixtures/mock_tool_outputs/` is not implemented yet.
+
+---
+
+## 11b. Stage Execution Contract (`OrchestratorAgent.execute_run`)
+
+Not a tool — the deterministic bridge between the LangGraph graph and the specialist sub-agents.
+
+```python
+OrchestratorAgent(llm_client=None, dry_run=False).execute_run(
+    db: Session, run_id: str, *, output_root: str | None = None,
+    mock_registry: MockToolRegistry | None = None, events: RunEvents | None = None,
+) -> RunState   # final graph state
+```
+
+- Raises `OrchestratorError` before any tool runs if: the run is missing, stages violate the
+  dependency map, user analysis inputs are missing/inconsistent (`run_requirements.py`), or
+  `executor != local`.
+- Stage inputs are built by `src/agents/stage_inputs.py::build_stage_inputs(stage, ctx,
+  stage_outputs)` from DB records and upstream outputs only (never LLM text):
+
+| Stage | Invocations | Key inputs resolved from |
+|---|---|---|
+| `qc` | per sample | `Sample.fastq_*`; BAM from alignment if it already ran; `run_config.bed_annotation_path` |
+| `alignment` | per sample | `ReferenceGenome.star_index_path`; `alignment_mode` (forced to `both` for RSEM) |
+| `quantification` | per sample | method from `AnalysisRun.aligner`; sorted BAM / FASTQ / transcriptome BAM; genome GTF / Salmon / RSEM index |
+| `variant_calling` | per sample | sorted BAM + BAI, genome FASTA, `run_config.dbsnp_path` |
+| `scrna_seq` | per sample | `Sample.metadata.fastq_dirs`, `run_config.cellranger_transcriptome_path` |
+| `splicing` | per user contrast | numerator/denominator BAMs, genome GTF, `read_length` |
+| `differential_expression` | once | `build_count_matrix` + `write_sample_metadata` over all samples; user `de_contrasts`; `alpha`, `lfc_threshold` |
+| `gsea` | once | DE `results_paths`; organism from `ReferenceGenome.species` (human/mouse) |
+| `visualization` | once | DE/GSEA/QC output dirs, BAMs if aligned, `<fasta>.fai` as chrom sizes |
+| `report` | once | upstream validated outputs and artifact paths |
+
+- Specialists are called via `BaseSpecialistAgent.run_stage(input)`, which stores the input as
+  `PipelineStage.input_params` and sets `started_at`, `completed_at`, `executor`.
+- `RunState.stage_outputs[stage]` is `{"samples": {sample_id: StageOutput}}`,
+  `{"contrasts": {name: StageOutput}}`, or a single `StageOutput`
+  (`{stage_name, status, output, tool_version, summary}`); a failed per-item stage keeps its
+  finished items plus `"partial": true` so a resume skips them.
+- Failure semantics: the failing invocation's uncommitted rows are rolled back, a `failed`
+  `PipelineStage` audit row is written with its `input_params`, `failed_stage` /
+  `error_message` (sanitized, ≤1000 chars) are set, the graph ends.
+
 
 ---
 

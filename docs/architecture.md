@@ -40,14 +40,22 @@ All agents ← Tool results validated by Pydantic schemas
 ## 2. Major Components
 
 ### 2.1 Orchestrator Agent
-- Entry point for all workflow requests.
-- Uses LangGraph `StateGraph` for routing and durable state.
-- Decomposes user intent into a directed acyclic graph of sub-agent tasks.
-- Maintains run context: sample manifest, genome config, tool parameters.
-- Persists state so interrupted runs can resume.
+- Entry point for all workflow requests; the **only** component that calls the LLM.
+- LLM reasoning: parses user intent (chat) into a draft `RunConfig`, chooses stages/tools,
+  asks follow-up questions. All LLM output is validated (Pydantic + DB re-checks + the
+  deterministic checks in `src/agents/run_requirements.py`) before use.
+- Execution: `OrchestratorAgent.execute_run(db, run_id)` loads the persisted run, re-validates
+  the plan, and invokes the LangGraph `StateGraph` whose stage nodes dispatch to the
+  specialist sub-agents (§3.1). No LLM call happens during execution.
+- Persists state (`AnalysisRun.agent_state`) after every stage so interrupted runs resume.
 
 ### 2.2 Specialist Sub-Agents
 Each sub-agent owns one phase of the pipeline:
+
+Sub-agents are deterministic: they call tools, validate outputs, and write
+`PipelineStage` / `Artifact` / result rows. They receive a typed `StageInput` built by
+`src/agents/stage_inputs.py` (never by an LLM) and are invoked via
+`BaseSpecialistAgent.run_stage(stage_input)`, which also records the input for the audit log.
 
 | Agent | Responsibilities | Key Tools |
 |---|---|---|
@@ -77,7 +85,8 @@ Each sub-agent owns one phase of the pipeline:
 ### 2.5 State & Persistence (LangGraph + SQLAlchemy)
 - LangGraph `StateGraph` manages agent routing and branching.
 - `AnalysisRun` entity tracks each pipeline execution lifecycle.
-- Checkpointing: LangGraph state snapshots stored in DB so runs survive crashes.
+- Checkpointing: the merged `RunState` is written to `AnalysisRun.agent_state` after every
+  stage (success or failure); `execute_run` resumes from it (§3.1).
 - File artifacts stored on local disk or S3; paths recorded in DB.
 
 ### 2.6 FastAPI Service
@@ -137,6 +146,62 @@ Each node:
 5. Updates graph state with `StageOutput`.
 6. Returns control to router.
 
+### 3.1 Execution Path (non-dry-run)
+
+```
+POST /runs ─────────────┐                     (both validate user inputs first, §3.2)
+chat dispatch_from_chat ┴─► AnalysisRun(pending) + RunSample rows ─► ARQ "run_pipeline"
+                                                                          │
+src/worker.py (arq) ─► execute_run_sync()  [src/api/background/runner.py] │
+   status=running ─► OrchestratorAgent.execute_run(db, run_id) ◄──────────┘
+        1. load PipelineContext (run, samples, genome)      [stage_inputs.py]
+        2. re-check stage dependencies + user inputs; only executor=local accepted
+        3. build graph: build_pipeline_graph(stage_node_factory(runtime))
+        4. graph.invoke(RunState restored from agent_state)
+               router ──► <stage> node ──► router ──► … ──► END
+   status=completed | failed (sanitized error_message) | cancelled (kept)
+```
+
+Each stage node (`src/agents/stage_executor.py`):
+1. Checks the run was not cancelled (also before every sample/contrast).
+2. Builds the specialist's typed input(s) deterministically from the DB and upstream
+   `stage_outputs` (e.g. sorted BAMs from alignment, merged counts matrix for DESeq2).
+3. Runs the specialist once per sample (`qc`, `alignment`, `quantification`,
+   `variant_calling`, `scrna_seq`), once per user contrast (`splicing`), or once per run.
+4. Commits after each finished sample/contrast; records the validated output in
+   `RunState.stage_outputs[stage]` (`{"samples": {...}}`, `{"contrasts": {...}}` or the
+   `StageOutput` dict) and checkpoints to `AnalysisRun.agent_state`.
+5. On failure: rolls back the failing invocation's uncommitted result rows, writes a
+   `failed` `PipelineStage` audit row with its `input_params`, stores a sanitized
+   `error_message`, keeps finished items as `{"…": {...}, "partial": true}`, and stops the
+   graph. Re-running resumes: completed stages and finished samples/contrasts are skipped.
+6. Publishes progress events (§5).
+
+`dry_run=true` (API request body only) runs the same graph with specialists returning
+`MockToolRegistry` fixtures: no input resolution, subprocesses, or DB writes per stage.
+
+Quantification tool selection is derived from `AnalysisRun.aligner`: `star → HTSeq`,
+`salmon → Salmon`, `rsem → RSEM` (STAR then also emits a transcriptome BAM).
+
+### 3.2 User-Decided Analysis Inputs
+
+Some inputs change the scientific result and are therefore **never inferred** by the LLM or
+by code; they must come from the user (see `api_contracts.md` → "Analysis inputs"):
+
+| Input | Needed for | Source |
+|---|---|---|
+| `de_contrasts` (`numerator` = test, `denominator` = reference; any number of conditions/contrasts) | `differential_expression`, `splicing` | `POST /runs` body, or the user's chat answer |
+| `read_length` | `splicing` | request body / chat answer, or identical `Sample.metadata.read_length` |
+| sample `condition` | DE / splicing | `Sample` records |
+
+`src/agents/run_requirements.py` holds one deterministic checker used by `POST /runs` (422),
+the chat gateway (follow-up question) and `execute_run` (refuse to start). In chat, the
+orchestrator sends the conversation history to the LLM, keeps an extracted contrast only if
+both conditions exist on the selected samples **and** were named by the user, keeps a read
+length only if the number appears in the user's messages, and otherwise asks a
+deterministic question listing the available conditions. The created run's plan
+(contrasts with fold-change direction) is echoed back to the user.
+
 ## 4. LangGraph + OpenAI Agents SDK Boundary
 
 **LangGraph owns:**
@@ -147,7 +212,11 @@ Each node:
 
 **OpenAI Agents SDK is used for:**
 - Single-turn LLM completions for intent parsing (converting natural language to `RunConfig`).
-- Single-turn LLM completions for stage summaries (converting `StageOutput` to human-readable narrative).
+- Single-turn LLM completions for stage summaries (converting `StageOutput` to human-readable narrative). *Not implemented yet* — today the chat shows `tool_call` frames whose `summary` is a JSON excerpt of the validated output.
+- A short streamed acknowledgement when a chat run is queued (the run plan itself is appended deterministically).
+
+Stage execution (`execute_run` and the stage nodes) makes **no** LLM calls; the worker
+constructs `OrchestratorAgent(llm_client=None)`.
 
 **LangGraph nodes do NOT run an Agents SDK agent loop.** Each node is a Python function that calls the SDK's `client.chat.completions.create()` directly for any LLM work, then calls deterministic tools, then returns. The Agents SDK is used as an LLM client, not as a routing framework.
 
@@ -164,6 +233,18 @@ Real-time log streaming to `WS /ws/runs/{run_id}/logs` requires collecting logs 
 - **AWS Batch**: a background poller queries CloudWatch Logs for the job's log stream at 5-second intervals and publishes new lines.
 
 The WebSocket handler subscribes to the Redis channel for `run_id` and forwards messages to connected clients. Log lines are stored to `PipelineStage.log_path` as flat files in parallel.
+
+**Implemented today** (`src/agents/run_events.py`): the stage executor publishes, best-effort
+(a Redis outage never fails a run):
+- `logs:{run_id}` — `{ts, level, stage, agent, message}` frames at stage start/finish,
+  per sample/contrast, and on failure (message sanitized).
+- `conv:{conversation_id}` (chat-originated runs only) — `stage_update`
+  (`running`/`completed`/`failed`), `tool_call` (`message_id` = the assistant message that
+  launched the run; `summary` = numbers-only JSON excerpt of the validated output, no paths
+  or prose), and an `error` frame when the run fails.
+
+Per-tool stdout/stderr forwarding, Nextflow log tailing and CloudWatch polling are not
+implemented yet.
 
 ---
 
@@ -331,14 +412,19 @@ The raw key lives only in localStorage and in HTTP request headers. It is never 
 1. User types: "Run DE analysis on ctrl vs treatment samples"
 2. POST /conversations/{id}/messages  { role: "user", content: "..." }
 3. FastAPI creates ChatMessage(role=user)
-4. FastAPI calls OrchestratorAgent.dispatch_from_chat(message, conversation_id)
-   a. LLM parses intent → draft RunConfig (Pydantic-validated)
-   b. Prompts for any missing info (genome, samples) as follow-up agent messages
-   c. On full RunConfig: creates AnalysisRun, enqueues job via arq
-   d. Returns run_id
+4. FastAPI enqueues arq "process_chat_message"; the worker calls
+   OrchestratorAgent.dispatch_from_chat()
+   a. LLM parses intent over the conversation history → draft RunConfig
+   b. IDs re-validated against the DB; contrasts / read length kept only if the user
+      stated them (§3.2)
+   c. Missing info (samples, genome, contrasts, read length) → follow-up question
+      streamed as token frames; no run created
+   d. On full RunConfig: creates AnalysisRun + RunSample rows, streams an
+      acknowledgement + deterministic run plan, then enqueues arq "run_pipeline"
 5. FastAPI returns { message_id, run_id } to frontend
 6. Frontend connects to WS /ws/conversations/{id}/stream
-7. Agent events stream: thinking tokens, tool call cards, stage updates
+7. Agent events stream: tokens, then stage_update / tool_call frames from the
+   stage executor (§5), and an error frame if the run fails
 8. On run completion: Streamlit data files available; StreamlitEmbed shows results
 ```
 
@@ -356,4 +442,6 @@ The raw key lives only in localStorage and in HTTP request headers. It is never 
 | `GET /conversations/{id}/messages` | Fetch message history |
 | `WS /ws/conversations/{id}/stream` | Stream agent response tokens + events |
 | `OrchestratorAgent.dispatch_from_chat()` | Parse intent + create AnalysisRun |
+| `OrchestratorAgent.execute_run()` + `src/agents/stage_executor.py` | Execute a run: graph stage nodes dispatch to specialist sub-agents |
+| `src/worker.py` | arq entry point registering `process_chat_message` and `run_pipeline` |
 | FastAPI static file mount | Serve `frontend/out/` at `/app` |

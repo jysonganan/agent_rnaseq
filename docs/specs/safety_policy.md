@@ -111,7 +111,8 @@ Audit records must not be deleted or modified after creation. `UPDATE` on `Pipel
 
 - Agent must not silently continue past a failed tool call.
 - On `ToolExecutionError`, the stage is marked `failed` and the run halts (unless the stage is marked optional in the run config).
-- Error messages stored in `PipelineStage.error_message` are sanitized: no file system paths or credentials.
+- Error messages stored in `AnalysisRun.error_message` and `AnalysisRun.agent_state.error_message` are sanitized: no file system paths or credentials (`src/agents/sanitize.py`). (`PipelineStage` has no error column; a failed invocation is recorded as a `failed` row with its `input_params`.)
+- A failed invocation's uncommitted result rows are rolled back so no partial results (e.g. DEG rows) are stored.
 - LLM receives only: stage name, tool name, exit code, and a truncated stderr (max 500 chars) for diagnosis assistance.
 
 ---

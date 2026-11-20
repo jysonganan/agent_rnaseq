@@ -13,15 +13,19 @@ No LLM call happens here: all numbers come from tool outputs.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
 
 from src.agents.base_agent import MockToolRegistry
+from src.agents.run_events import NullRunEvents, RunEvents, output_excerpt
+from src.agents.sanitize import sanitize_text
 from src.agents.specialists import (
     AlignmentAgent,
     DEAgent,
@@ -42,7 +46,7 @@ from src.agents.stage_inputs import (
     build_stage_inputs,
 )
 from src.agents.state import RunState
-from src.db.enums import RunStatus, StageName, StageStatus
+from src.db.enums import Executor, RunStatus, StageName, StageStatus
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +65,63 @@ SPECIALISTS: dict[str, type[BaseSpecialistAgent]] = {
 
 _MAX_ERROR_LEN = 1000
 
+# Tool recorded on the audit row of a failed invocation (matches the specialists).
+_STAGE_TOOL: dict[str, str] = {
+    "qc": "fastqc",
+    "alignment": "star",
+    "variant_calling": "gatk",
+    "splicing": "rmats",
+    "differential_expression": "deseq2",
+    "gsea": "reactome_gsea",
+    "scrna_seq": "cellranger",
+    "visualization": "streamlit",
+    "report": "report_compiler",
+}
+_QUANT_TOOL = {"star_htseq": "htseq", "salmon": "salmon", "rsem": "rsem"}
+
+
+# Primary tool function per stage, used as ``tool_call.tool_name`` (api_contracts.md).
+_STAGE_TOOL_FN: dict[str, str] = {
+    "qc": "run_fastqc",
+    "alignment": "run_star_align",
+    "variant_calling": "run_gatk_haplotypecaller",
+    "splicing": "run_rmats",
+    "differential_expression": "run_deseq2",
+    "gsea": "run_reactome_gsea",
+    "scrna_seq": "run_cellranger_count",
+    "visualization": "prepare_streamlit_data",
+    "report": "compile_report",
+}
+_QUANT_TOOL_FN = {"star_htseq": "run_htseq_count", "salmon": "run_salmon_quant", "rsem": "run_rsem"}
+
+
+def _agent_name(stage: str) -> str:
+    """Log-frame ``agent`` field, e.g. ``alignment_agent``."""
+    return SPECIALISTS[stage].__module__.rsplit(".", 1)[-1]
+
+
+def _tool_fn(stage: str, rt: StageRuntime) -> str:
+    if stage == "quantification":
+        if rt.ctx is None:
+            return "run_htseq_count"
+        from src.agents.stage_inputs import quantification_method
+
+        return _QUANT_TOOL_FN[quantification_method(rt.ctx)]
+    return _STAGE_TOOL_FN[stage]
+
 
 class RunCancelledError(Exception):
     pass
+
+
+class StageFailure(Exception):
+    """Wraps the original error with the input that failed and any finished items."""
+
+    def __init__(self, cause: Exception, failed_input: dict | None, partial: dict | None) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.failed_input = failed_input
+        self.partial = partial
 
 
 @dataclass
@@ -75,6 +133,7 @@ class StageRuntime:
     dry_run: bool = False
     mock_registry: MockToolRegistry | None = None
     llm_client: Any = None
+    events: RunEvents = field(default_factory=NullRunEvents)
 
 
 def _run_row(db: Session, run_id: str) -> Any:
@@ -92,21 +151,25 @@ def _check_not_cancelled(db: Session, run_id: str) -> None:
         raise RunCancelledError(f"Run {run_id} was cancelled")
 
 
-def _mark_dangling_stages_failed(db: Session, run_id: str, stage: str) -> None:
-    """Specialists only fail their PipelineStage on ToolExecutionError; cover the rest."""
+def _record_failed_attempt(db: Session, run_id: str, stage: str, inp: dict) -> None:
+    """Audit row for an invocation whose own (uncommitted) rows were rolled back."""
     from src.db.models.run import PipelineStage
 
-    rows = (
-        db.query(PipelineStage)
-        .filter(
-            PipelineStage.run_id == uuid.UUID(run_id),
-            PipelineStage.stage_name == StageName(stage),
-            PipelineStage.status == StageStatus.running,
+    tool = _STAGE_TOOL.get(stage) or _QUANT_TOOL.get(inp.get("quantification_method", ""), stage)
+    now = datetime.now(UTC)
+    db.add(
+        PipelineStage(
+            run_id=uuid.UUID(run_id),
+            sample_id=uuid.UUID(inp["sample_id"]) if inp.get("sample_id") else None,
+            stage_name=StageName(stage),
+            status=StageStatus.failed,
+            tool_name=tool,
+            input_params=json.loads(json.dumps(inp, default=str)),
+            executor=Executor.local,
+            started_at=now,
+            completed_at=now,
         )
-        .all()
     )
-    for row in rows:
-        row.status = StageStatus.failed
 
 
 def _checkpoint(db: Session, state: RunState, update: dict) -> None:
@@ -130,21 +193,33 @@ def _execute(stage: str, state: RunState, rt: StageRuntime) -> dict:
 
     assert rt.ctx is not None
     inputs = build_stage_inputs(stage, rt.ctx, state.get("stage_outputs", {}))
-    if stage in PER_SAMPLE_STAGES:
-        per_sample: dict[str, dict] = {}
+
+    if stage in PER_SAMPLE_STAGES or stage in PER_CONTRAST_STAGES:
+        key, item_field = (
+            ("samples", "sample_id") if stage in PER_SAMPLE_STAGES else ("contrasts", "contrast")
+        )
+        # Resume: items finished before an earlier failure are not re-run.
+        previous = (state.get("stage_outputs", {}).get(stage) or {}).get(key) or {}
+        done: dict[str, dict] = dict(previous)
         for inp in inputs:
-            _check_not_cancelled(rt.db, state["run_id"])
-            per_sample[inp["sample_id"]] = agent.run(inp)
-            rt.db.commit()  # persist each sample's rows as soon as it finishes
-        return {"samples": per_sample}
-    if stage in PER_CONTRAST_STAGES:
-        per_contrast: dict[str, dict] = {}
-        for inp in inputs:
-            _check_not_cancelled(rt.db, state["run_id"])
-            per_contrast[inp["contrast"]] = agent.run(inp)
-            rt.db.commit()
-        return {"contrasts": per_contrast}
-    return agent.run(inputs[0])
+            item = inp[item_field]
+            if item in done:
+                continue
+            try:
+                _check_not_cancelled(rt.db, state["run_id"])
+                rt.events.log("info", stage, _agent_name(stage), f"{stage}: starting {item}")
+                done[item] = agent.run_stage(inp)
+            except RunCancelledError as exc:
+                raise StageFailure(exc, None, {key: done}) from exc
+            except Exception as exc:
+                raise StageFailure(exc, inp, {key: done}) from exc
+            rt.db.commit()  # persist each finished item immediately
+        return {key: done}
+
+    try:
+        return agent.run_stage(inputs[0])
+    except Exception as exc:
+        raise StageFailure(exc, inputs[0], None) from exc
 
 
 def make_stage_node(stage: str, rt: StageRuntime) -> Callable[[RunState], dict]:
@@ -153,21 +228,37 @@ def make_stage_node(stage: str, rt: StageRuntime) -> Callable[[RunState], dict]:
     def _node(state: RunState) -> dict:
         run_id = state["run_id"]
         logger.info("run=%s stage=%s starting", run_id, stage)
+        rt.events.stage_update(stage, "running")
+        rt.events.tool_call(_tool_fn(stage, rt), "running")
+        rt.events.log("info", stage, _agent_name(stage), f"Stage {stage} started")
         try:
             if not rt.dry_run:
                 _check_not_cancelled(rt.db, run_id)
             stage_output = _execute(stage, state, rt)
-        except Exception as exc:
+        except Exception as raw:
+            exc = raw.cause if isinstance(raw, StageFailure) else raw
             logger.exception("run=%s stage=%s failed", run_id, stage)
-            if not rt.dry_run:
-                _mark_dangling_stages_failed(rt.db, run_id, stage)
-            update = {
+            message = sanitize_text(f"{type(exc).__name__}: {exc}", _MAX_ERROR_LEN)
+            update: dict[str, Any] = {
                 "current_stage": stage,
                 "failed_stage": stage,
-                "error_message": f"{type(exc).__name__}: {exc}"[:_MAX_ERROR_LEN],
+                "error_message": message,
             }
+            if isinstance(raw, StageFailure) and raw.partial:
+                update["stage_outputs"] = {
+                    **state.get("stage_outputs", {}),
+                    stage: {**raw.partial, "partial": True},
+                }
             if not rt.dry_run:
+                # Drop the failed invocation's uncommitted result rows (no partial
+                # DEG/QC rows survive), but keep an audit record of the attempt.
+                rt.db.rollback()
+                if isinstance(raw, StageFailure) and raw.failed_input is not None:
+                    _record_failed_attempt(rt.db, run_id, stage, raw.failed_input)
                 _checkpoint(rt.db, state, update)
+            rt.events.stage_update(stage, "failed")
+            rt.events.tool_call(_tool_fn(stage, rt), "failed")
+            rt.events.log("error", stage, _agent_name(stage), message)
             return update
 
         completed = list(state.get("completed_stages", []))
@@ -180,6 +271,9 @@ def make_stage_node(stage: str, rt: StageRuntime) -> Callable[[RunState], dict]:
         }
         if not rt.dry_run:
             _checkpoint(rt.db, state, update)
+        rt.events.stage_update(stage, "completed")
+        rt.events.tool_call(_tool_fn(stage, rt), "completed", output_excerpt(stage_output))
+        rt.events.log("info", stage, _agent_name(stage), f"Stage {stage} completed")
         logger.info("run=%s stage=%s completed", run_id, stage)
         return update
 

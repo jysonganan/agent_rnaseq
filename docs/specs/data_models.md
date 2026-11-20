@@ -73,8 +73,8 @@ One end-to-end pipeline execution.
 | `alignment_mode` | ENUM | NOT NULL | `genome`, `transcriptome`, `both` |
 | `aligner` | ENUM | NOT NULL | `star`, `salmon`, `rsem` |
 | `run_config` | JSONB | NOT NULL | Full RunConfig snapshot (includes `stages`, `sample_ids`, `de_contrasts`, `read_length`, `execution`) |
-| `agent_state` | JSONB | | LangGraph state checkpoint |
-| `error_message` | TEXT | | Set on failure |
+| `agent_state` | JSONB | | LangGraph `RunState` checkpoint, written after every stage: `run_id`, `run_config`, `stages`, `completed_stages`, `failed_stage`, `stage_outputs`, `error_message`, `current_stage` (see tool_contracts.md §11b) |
+| `error_message` | TEXT | | Set on failure; sanitized (no file paths / credentials), ≤1000 chars |
 | `started_at` | TIMESTAMP | | |
 | `completed_at` | TIMESTAMP | | |
 | `created_at` | TIMESTAMP | NOT NULL | |
@@ -106,7 +106,7 @@ Individual stage execution record within a run.
 | `status` | ENUM | NOT NULL | `pending`, `running`, `completed`, `failed`, `skipped` |
 | `tool_name` | VARCHAR(64) | NOT NULL | e.g. `star`, `deseq2` |
 | `tool_version` | VARCHAR(32) | | |
-| `input_params` | JSONB | | Validated tool input |
+| `input_params` | JSONB | | Validated stage input (the specialist `StageInput`, set at insert) |
 | `output_summary` | JSONB | | Validated tool output summary |
 | `executor` | ENUM | | `local`, `nextflow`, `aws_batch` |
 | `batch_job_id` | VARCHAR(128) | | AWS Batch job ID if applicable |
@@ -128,7 +128,7 @@ Output files produced by pipeline stages.
 | `artifact_type` | ENUM | NOT NULL | `fastqc_report`, `bam`, `bai`, `counts_matrix`, `vcf`, `de_table`, `gsea_result`, `splicing_table`, `ucsc_track`, `html_report`, `streamlit_data` |
 | `path` | TEXT | NOT NULL | Local path or `s3://` URI |
 | `file_size_bytes` | BIGINT | | |
-| `checksum_md5` | VARCHAR(32) | | |
+| `checksum_md5` | VARCHAR(32) | | Computed with `file_size_bytes` when the artifact is a local file at write time; null for remote (`s3://`) paths |
 | `created_at` | TIMESTAMP | NOT NULL | |
 
 ---

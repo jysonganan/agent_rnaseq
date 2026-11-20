@@ -99,19 +99,20 @@ Browser (Chat UI)
               Local disk / AWS S3
 ```
 
-**Key design principle**: LLMs parse intent and route workflows. All numerical computation runs as deterministic Python/R tool calls. No LLM-generated numbers are written to the database. See [Safety Policy](#safety-policy).
+**Key design principle**: the Orchestrator is the only component that calls the LLM — it parses intent, chooses stages and asks follow-up questions. Executing a run is fully deterministic: LangGraph stage nodes dispatch to the specialist sub-agents, which call the Python/R tools. No LLM-generated numbers are written to the database. See [Safety Policy](#safety-policy).
 
 ### Component roles
 
 | Component | Technology | Role |
 |---|---|---|
 | Chat UI | Next.js 14, TypeScript, shadcn/ui | Natural-language interface to the pipeline |
-| Orchestrator | OpenAI Agents SDK + LangGraph | Intent parsing, DAG routing, state checkpointing |
-| Specialist agents | Python classes | Own one pipeline stage each; call tool functions |
+| Orchestrator | OpenAI Agents SDK + LangGraph | LLM intent parsing + follow-up questions; `execute_run()` drives the LangGraph DAG, checkpointing and resume |
+| Stage executor | `src/agents/stage_executor.py` | Graph stage nodes: build typed inputs, dispatch to specialists, checkpoint, publish progress events |
+| Specialist agents | Python classes | Own one pipeline stage each; call tool functions; write audit/result rows (no LLM) |
 | Tool layer | Python + R subprocesses | Bioinformatics computation (typed in/out, Pydantic-validated) |
 | Nextflow layer | Nextflow DSL2 | Wraps multi-tool chains; local or AWS Batch executor |
 | API | FastAPI | REST endpoints, WebSocket streaming, auth, static file serving |
-| Task queue | arq + Redis | Background processing of pipeline runs and chat messages |
+| Task queue | arq + Redis (`src/worker.py`) | `process_chat_message` (LLM intent) and `run_pipeline` (stage execution) jobs; Redis pub/sub for live events |
 | Database | SQLAlchemy + PostgreSQL/SQLite | Runs, conversations, samples, results, audit log |
 | Dashboard | Streamlit | Interactive plots; read-only |
 | AWS integration | boto3 | S3 artifact store, Batch job submission |
@@ -154,13 +155,33 @@ The Chat UI is a Next.js 14 (App Router) application that lets you describe your
 2. POST /api/v1/conversations/{id}/messages
 3. arq worker calls OrchestratorAgent.dispatch_from_chat()
    a. Queries DB for available samples and genomes (anti-hallucination)
-   b. LLM parses intent → draft RunConfig (Pydantic-validated)
+   b. LLM parses intent over the conversation history → draft RunConfig (Pydantic-validated)
    c. All sample/genome IDs re-validated against DB
-   d. Creates AnalysisRun, enqueues pipeline job
+   d. Missing contrasts / read length → the agent asks (see below); no run yet
+   e. Creates AnalysisRun, replies with the run plan, enqueues the pipeline job
 4. Agent response tokens stream via WS /ws/conversations/{id}/stream
-5. Frontend renders streaming tokens, tool call cards, stage updates
+5. arq run_pipeline → OrchestratorAgent.execute_run → LangGraph → specialist agents;
+   stage_update / tool_call frames stream to the same conversation
 6. On completion: artifacts available for download; Streamlit embed shows results
 ```
+
+**Contrasts are your decision.** When you ask for differential expression or splicing without
+saying what to compare, the agent lists the conditions of the selected samples and asks for
+comparisons as `<test> vs <reference>` — any number of conditions and contrasts is supported:
+
+```
+You:   Run differential expression on all samples
+Agent: Which conditions should I compare? The selected samples have these conditions:
+       - ctrl (3 samples)  - drugA (3 samples)  - drugB (3 samples)
+       Please list each comparison as `<test> vs <reference>` …
+You:   drugA vs ctrl, drugB vs ctrl and drugA vs drugB
+Agent: … Run plan
+       - Contrast drugA_vs_ctrl: drugA vs ctrl (fold change = drugA / ctrl)
+       - …
+```
+
+The agent never picks a comparison direction or a read length itself: a value is used only if
+you stated it. Splicing additionally asks for the read length (bp).
 
 ---
 
@@ -179,6 +200,15 @@ The following stages can be included in any combination (dependency constraints 
 | `gsea` | fgsea + Reactome (R) | Pathway enrichment table, NES scores |
 | `visualization` | Streamlit data prep, UCSC tracks | Dashboard data, BED/bigWig tracks |
 | `report` | Markdown/HTML assembly | Full analysis report |
+
+Quantification method follows the run's `aligner`: `star` → HTSeq on the STAR BAM, `salmon` →
+Salmon on FASTQs, `rsem` → RSEM on the STAR transcriptome BAM. Per-sample stages (`qc`,
+`alignment`, `quantification`, `variant_calling`, `scrna_seq`) run once per sample; `splicing`
+runs once per contrast; DESeq2 fits all samples and reports every contrast.
+
+> `visualization` (`prepare_streamlit_data`, `generate_ucsc_tracks`) and `report`
+> (`compile_report`) tools are not implemented yet; these stages currently fail with
+> `NotImplementedError` when executed for real.
 
 Stage dependency rules:
 - `alignment` → required by `quantification`, `variant_calling`, `splicing`
@@ -391,6 +421,15 @@ curl -s -X POST http://localhost:8000/api/v1/runs \
     "execution": {"executor": "local", "cpus": 8, "memory_gb": 32}
   }' | jq .
 ```
+
+- `de_contrasts` is required when `differential_expression` or `splicing` is in `stages`:
+  `numerator` = test condition, `denominator` = reference (fold change = numerator /
+  denominator). Both must be a `condition` of a selected sample; list as many contrasts as you
+  need. `name` is optional (default `<numerator>_vs_<denominator>`).
+- `read_length` (bp) is required for `splicing` unless every sample has `metadata.read_length`.
+- `"dry_run": true` runs the graph with mock tool outputs (no tools executed).
+- Agent-driven execution currently supports `"executor": "local"` only.
+- Missing or inconsistent inputs return `422` with the available conditions listed.
 
 ### 5. Poll status and retrieve results
 
@@ -692,8 +731,13 @@ agent_rnaseq/
 │   └── package.json
 ├── src/
 │   ├── agents/
-│   │   ├── orchestrator.py      # OrchestratorAgent + dispatch_from_chat()
-│   │   ├── router.py            # LangGraph StateGraph
+│   │   ├── orchestrator.py      # OrchestratorAgent: dispatch_from_chat() (LLM), execute_run()
+│   │   ├── router.py            # LangGraph StateGraph (stage-node factory)
+│   │   ├── stage_executor.py    # Graph stage nodes → specialist dispatch, checkpoint, resume
+│   │   ├── stage_inputs.py      # Deterministic StageInput construction from DB + upstream outputs
+│   │   ├── run_requirements.py  # User-decided inputs (contrasts, read length) checks/questions
+│   │   ├── run_events.py        # Redis progress events (run logs, stage_update, tool_call)
+│   │   ├── sanitize.py          # Path/credential stripping for user-visible text
 │   │   ├── state.py             # RunState, StageState
 │   │   └── specialists/         # QC, Alignment, DE, GSEA, scRNA, …
 │   ├── tools/                   # Deterministic tool wrappers (typed in/out)
@@ -705,7 +749,9 @@ agent_rnaseq/
 │   ├── api/
 │   │   ├── app.py               # FastAPI factory (CORS, static mount, all routers)
 │   │   ├── routers/             # conversations, runs, genomes, projects, …
+│   │   ├── background/runner.py # run_pipeline arq job → OrchestratorAgent.execute_run
 │   │   └── websocket/           # conversation_stream.py, ws/logs.py
+│   ├── worker.py                # arq WorkerSettings (chat + pipeline jobs)
 │   ├── workers/
 │   │   └── tasks.py             # process_chat_message arq task
 │   ├── db/                      # SQLAlchemy models + migrations

@@ -10,6 +10,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from src.agents.run_events import NullRunEvents, RedisRunEvents, RunEvents
+from src.agents.sanitize import sanitize_text
 from src.db.enums import RunStatus
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,8 @@ def execute_run_sync(db: Session, run_id: str, **execute_kwargs: Any) -> RunStat
     run.started_at = run.started_at or datetime.now(UTC)
     db.commit()
 
+    events = execute_kwargs.pop("events", None) or _events_for(db, run)
+    execute_kwargs["events"] = events
     try:
         dry_run = bool((run.run_config or {}).get("dry_run", False))
         # Execution is deterministic: no LLM client is needed to run stages.
@@ -44,12 +48,14 @@ def execute_run_sync(db: Session, run_id: str, **execute_kwargs: Any) -> RunStat
     except Exception as exc:
         logger.exception("run_pipeline: run %s crashed", run_id)
         db.rollback()
+        message = sanitize_text(f"{type(exc).__name__}: {exc}", 1000)
         run = db.get(AnalysisRun, uuid.UUID(run_id))
         if run is not None:
             run.status = RunStatus.failed
-            run.error_message = f"{type(exc).__name__}: {exc}"[:1000]
+            run.error_message = message
             run.completed_at = datetime.now(UTC)
             db.commit()
+        events.run_error(f"Run could not start: {message}")
         return RunStatus.failed
 
     db.refresh(run)
@@ -58,12 +64,39 @@ def execute_run_sync(db: Session, run_id: str, **execute_kwargs: Any) -> RunStat
     elif final.get("failed_stage"):
         run.status = RunStatus.failed
         run.error_message = final.get("error_message")
+        events.run_error(f"Stage failed: {final['failed_stage']}")
     else:
         run.status = RunStatus.completed
     run.completed_at = datetime.now(UTC)
     run.agent_state = final
     db.commit()
     return run.status
+
+
+def _events_for(db: Session, run: Any) -> RunEvents:
+    """Redis publisher for this run (chat runs also get conversation frames)."""
+    from src.config import get_settings
+    from src.db.enums import MessageRole
+    from src.db.models.conversation import ChatMessage
+
+    message_id = None
+    if run.conversation_id is not None:
+        msg = (
+            db.query(ChatMessage)
+            .filter(ChatMessage.run_id == run.id, ChatMessage.role == MessageRole.assistant)
+            .first()
+        )
+        message_id = str(msg.id) if msg else None
+    try:
+        return RedisRunEvents.from_url(
+            get_settings().redis_url,
+            str(run.id),
+            str(run.conversation_id) if run.conversation_id else None,
+            message_id,
+        )
+    except Exception:
+        logger.warning("run_pipeline: Redis unavailable; progress events disabled")
+        return NullRunEvents()
 
 
 async def run_pipeline(ctx: dict, run_id: str) -> None:
