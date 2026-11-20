@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     nextflow_bin: str = "nextflow"
     nextflow_tools_image: str = "agent-rnaseq-tools:dev"  # pin an immutable tag in prod
     nextflow_timeout_seconds: int = 24 * 60 * 60
+    # Profile for executor=nextflow: "local" (tools image via Docker) or "localtools"
+    # (tools on PATH, e.g. environment/rnaseq-tools.yml). ",test" may be appended.
+    nextflow_local_profile: str = "local"
+    nextflow_extra_args: str = ""  # e.g. "-stub-run" (CI wiring test); shell-split
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"

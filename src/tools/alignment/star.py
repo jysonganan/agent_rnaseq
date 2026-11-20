@@ -23,6 +23,9 @@ class STARAlignInput(BaseModel):
     quantification_mode: Literal["None", "TranscriptomeSAM", "GeneCounts"] = "GeneCounts"
     out_sam_type: str = "BAM SortedByCoordinate"
     alignment_mode: Literal["genome", "transcriptome", "both"] = "genome"
+    # @RG written into the BAM (GATK HaplotypeCaller rejects BAMs without read groups)
+    read_group_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,128}$")
+    read_group_sample: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
 class STARAlignOutput(BaseModel):
@@ -67,6 +70,10 @@ def _build_star_cmd(
 
     if inp.fastq_r1.endswith(".gz"):
         cmd += ["--readFilesCommand", "zcat"]
+
+    if inp.read_group_id:
+        sample = inp.read_group_sample or inp.read_group_id
+        cmd += ["--outSAMattrRGline", f"ID:{inp.read_group_id}", f"SM:{sample}", "PL:ILLUMINA"]
 
     cmd += inp.extra_args
     return cmd

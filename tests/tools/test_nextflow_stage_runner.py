@@ -351,3 +351,30 @@ def test_s3_storage_localizes_siblings_together(tmp_path) -> None:
     assert os.path.dirname(bam) == os.path.dirname(bai)
     assert Path(bam).read_bytes() == b"x"
     assert store.exists("s3://bkt-x/r") and not store.exists("s3://bkt-x/zzz")
+
+
+def test_version_file_overrides_pin_and_resources_passed(tmp_path: Path) -> None:
+    def write_with_version(path: str, data: bytes) -> None:
+        _local_write(path, data)
+        if path.endswith("_Log.final.out"):
+            _local_write(path.replace("_Log.final.out", ".star.version.txt"), b"STAR 2.7.11b\n")
+
+    fake = FakeNextflow(write_with_version)
+    runner = _runner(tmp_path, fake)
+    runner.cfg.extra_args = ["-stub-run"]
+    outs = runner.alignment(
+        {
+            "sample_id": "s1",
+            "fastq_r1": "/d/r1.fq.gz",
+            "genome_dir": "/ref/star",
+            "output_prefix": str(tmp_path / "o" / "S1_"),
+            "alignment_mode": "genome",
+            "read_group": "ctrl_1",
+            "threads": 99,  # ignored: resources come from the run's execution settings
+        }
+    )
+    assert outs["star"].tool_version == "STAR 2.7.11b"
+    cmd = fake.commands[0]
+    assert _arg(cmd, "--threads") == "2" and _arg(cmd, "--memory") == "4 GB"
+    assert _arg(cmd, "--read_group") == "ctrl_1" and "-stub-run" in cmd
+    assert cmd.count("--threads") == 1

@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  agent_rnaseq — minimal AWS Batch environment for the Nextflow `awsbatch` executor:
+  encrypted S3 bucket (auto-expiring test data), ECR repo for the tools image, Spot compute
+  environment that scales to zero, job queue, and a least-privilege policy for the worker
+  (Nextflow head). Deploy with infra/aws-batch/deploy.sh; remove with teardown.sh.
+
+Parameters:
+  Prefix:
+    Type: String
+    Default: agent-rnaseq-e2e
+    AllowedPattern: "^[a-z0-9-]{3,40}$"
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnets with outbound internet access (public with auto-assign IP, or private + NAT)
+  MaxvCpus:
+    Type: Number
+    Default: 16
+    MinValue: 2
+  UseSpot:
+    Type: String
+    AllowedValues: ["true", "false"]
+    Default: "true"
+  DataRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+
+Conditions:
+  Spot: !Equals [!Ref UseSpot, "true"]
+
+Resources:
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub "${Prefix}-${AWS::AccountId}-${AWS::Region}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-nextflow-work
+            Status: Enabled
+            Prefix: nextflow-work/
+            ExpirationInDays: !Ref DataRetentionDays
+          - Id: expire-e2e-inputs
+            Status: Enabled
+            Prefix: e2e/
+            ExpirationInDays: !Ref DataRetentionDays
+          - Id: expire-run-outputs
+            Status: Enabled
+            Prefix: runs/
+            ExpirationInDays: !Ref DataRetentionDays
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+
+  ArtifactBucketTlsOnly:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt ArtifactBucket.Arn
+              - !Sub "${ArtifactBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  ToolsRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${Prefix}-tools"
+      ImageTagMutability: IMMUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EmptyOnDelete: true
+
+  BatchSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Sub "${Prefix} Batch instances (egress only)"
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+      Policies:
+        - PolicyName: task-s3-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # Nextflow stages task inputs/outputs with the AWS CLI inside the container,
+              # using the instance credentials.
+              - Effect: Allow
+                Action: ["s3:ListBucket", "s3:GetBucketLocation"]
+                Resource: !GetAtt ArtifactBucket.Arn
+              - Effect: Allow
+                Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  ComputeEnvironment:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      Type: MANAGED
+      State: ENABLED
+      # ServiceRole omitted → AWS Batch service-linked role
+      ComputeResources:
+        Type: !If [Spot, SPOT, EC2]
+        AllocationStrategy: !If [Spot, SPOT_PRICE_CAPACITY_OPTIMIZED, BEST_FIT_PROGRESSIVE]
+        MinvCpus: 0
+        DesiredvCpus: 0
+        MaxvCpus: !Ref MaxvCpus
+        InstanceTypes: [optimal]
+        Subnets: !Ref SubnetIds
+        SecurityGroupIds: [!Ref BatchSecurityGroup]
+        InstanceRole: !GetAtt InstanceProfile.Arn
+        Tags:
+          Project: !Ref Prefix
+
+  JobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: !Sub "${Prefix}-queue"
+      Priority: 1
+      State: ENABLED
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref ComputeEnvironment
+
+  WorkerPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: >
+        Attach to the identity running the agent worker (Nextflow head): submit/track Batch
+        jobs and read/write the artifact bucket.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - batch:SubmitJob
+              - batch:DescribeJobs
+              - batch:ListJobs
+              - batch:TerminateJob
+              - batch:CancelJob
+              - batch:TagResource
+              - batch:RegisterJobDefinition
+              - batch:DescribeJobDefinitions
+              - batch:DescribeJobQueues
+              - batch:DescribeComputeEnvironments
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - ecs:DescribeTasks
+              - ecs:DescribeContainerInstances
+              - ec2:DescribeInstances
+              - ec2:DescribeInstanceTypes
+              - ec2:DescribeInstanceAttribute
+              - ec2:DescribeInstanceStatus
+              - logs:GetLogEvents
+            Resource: "*"
+          - Effect: Allow
+            Action: ["s3:ListBucket", "s3:GetBucketLocation"]
+            Resource: !GetAtt ArtifactBucket.Arn
+          - Effect: Allow
+            Action: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+            Resource: !Sub "${ArtifactBucket.Arn}/*"
+
+Outputs:
+  BucketName:
+    Value: !Ref ArtifactBucket
+  JobQueueArn:
+    Value: !Ref JobQueue
+  ToolsRepositoryUri:
+    Value: !GetAtt ToolsRepository.RepositoryUri
+  WorkerPolicyArn:
+    Value: !Ref WorkerPolicy

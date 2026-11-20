@@ -67,3 +67,53 @@ jobs:
 
       - name: Run ruff format check
         run: ruff format --check src/ tests/
+
+  nextflow-stub-e2e:
+    # Real Nextflow (no bioinformatics tools): `-stub-run` executes every workflow/process the
+    # agent drives, so this checks the pipeline parses, the agent's CLI/params/profile wiring,
+    # published file names, and the Python adapters — end to end through execute_run.
+    name: Nextflow stub e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Nextflow 23.10.1 (pinned, docker/tool_versions.txt)
+        run: |
+          curl -fsSL -o nextflow \
+            https://github.com/nextflow-io/nextflow/releases/download/v23.10.1/nextflow-23.10.1-all
+          chmod +x nextflow && sudo mv nextflow /usr/local/bin/
+          nextflow -version
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Stub end-to-end run (executor=nextflow)
+        run: pytest tests/e2e/test_executor_e2e.py -v -s
+        env:
+          E2E_EXECUTOR: nextflow
+          E2E_STUB: "1"
+          E2E_OUTPUT_ROOT: ${{ runner.temp }}/e2e
+          NEXTFLOW_LOCAL_PROFILE: localtools,test
+
+      - name: Upload e2e report and Nextflow logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextflow-stub-e2e
+          path: |
+            ${{ runner.temp }}/e2e/e2e_report.json
+            ${{ runner.temp }}/e2e/**/nextflow/**/.nextflow.log
+            ${{ runner.temp }}/e2e/**/nextflow/**/nextflow.stdout
+          if-no-files-found: ignore

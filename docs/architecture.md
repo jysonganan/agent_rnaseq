@@ -87,6 +87,9 @@ Sub-agents are deterministic: they call tools, validate outputs, and write
   for cancellation), then rebuilds the same validated ToolOutput models from the published
   files; the specialist then writes DB rows exactly as for a local run.
 - Light stages (DESeq2, GSEA, rMATS, visualization, report) always run in the worker.
+- Every module has a `stub:` block; CI runs the whole agent → Nextflow path with real
+  Nextflow in `-stub-run` mode. Real-tool and AWS Batch validation (synthetic dataset with a known
+  answer, infra scripts) is described in `docs/testing/executor_e2e.md`.
 
 ### 2.5 State & Persistence (LangGraph + SQLAlchemy)
 - LangGraph `StateGraph` manages agent routing and branching.

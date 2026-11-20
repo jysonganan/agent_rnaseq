@@ -279,3 +279,24 @@ class TestRunStarAlign:
         out = run_star_align(self._base_inp())
         assert out.alignment_stats["total_reads"] == 45_000_000
         assert out.alignment_stats["uniquely_mapped_pct"] == pytest.approx(93.33)
+
+
+def test_read_group_line_added() -> None:
+    from src.tools.alignment.star import STARAlignInput, _build_star_cmd
+
+    inp = STARAlignInput(
+        fastq_r1="/r1.fq.gz", genome_dir="/g", output_prefix="/o/s_", read_group_id="ctrl_1"
+    )
+    cmd = _build_star_cmd(inp, inp.output_prefix, "GeneCounts")
+    i = cmd.index("--outSAMattrRGline")
+    assert cmd[i + 1 : i + 4] == ["ID:ctrl_1", "SM:ctrl_1", "PL:ILLUMINA"]
+
+
+def test_read_group_rejects_whitespace() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from src.tools.alignment.star import STARAlignInput
+
+    with pytest.raises(ValidationError):
+        STARAlignInput(fastq_r1="/r", genome_dir="/g", output_prefix="/o", read_group_id="a b")

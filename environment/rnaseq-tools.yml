@@ -1,0 +1,37 @@
+# Pinned tool environment for running the pipeline WITHOUT Docker
+# (Nextflow profile `localtools`, or executor=local with tools on PATH).
+#
+# Versions must equal docker/tool_versions.txt — enforced by
+# tests/tools/test_environment_pins.py.
+#
+# Apple Silicon: several pinned builds exist only for Intel, so create the env as osx-64
+# (runs under Rosetta):
+#   CONDA_SUBDIR=osx-64 conda env create -f environment/rnaseq-tools.yml
+#   conda activate rnaseq-tools && conda config --env --set subdir osx-64
+# Linux x86_64: conda env create -f environment/rnaseq-tools.yml
+#
+# Size: ~4–5 GB. Remove with: conda env remove -n rnaseq-tools
+name: rnaseq-tools
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python=3.12
+  - openjdk=17
+  - nextflow=23.10.1
+  - fastqc=0.12.1
+  - star=2.7.11b
+  - samtools=1.19.2
+  - htseq=2.0.5
+  - salmon=1.10.3
+  - rsem=1.3.3
+  - gatk4=4.5.0.0
+  - deeptools=3.5.5
+  - r-base=4.3.3
+  - bioconductor-deseq2=1.42.0
+  - bioconductor-fgsea=1.28.0
+  - bioconductor-reactome.db=1.86.0
+  - bioconductor-org.hs.eg.db
+  - zip
+  - pip

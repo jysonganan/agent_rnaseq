@@ -20,6 +20,7 @@ class AlignmentStageInput(TypedDict):
     output_prefix: str
     threads: int
     alignment_mode: NotRequired[str]  # "genome" | "transcriptome" | "both"
+    read_group: NotRequired[str]  # @RG ID/SM written into the BAM (needed by GATK)
 
 
 class AlignmentAgent(BaseSpecialistAgent):
@@ -49,6 +50,7 @@ class AlignmentAgent(BaseSpecialistAgent):
                 output_prefix=stage_input["output_prefix"],
                 threads=stage_input.get("threads", 8),
                 alignment_mode=stage_input.get("alignment_mode", "genome"),
+                read_group_id=stage_input.get("read_group"),
             )
         )
         samtools_out = run_samtools_sort_index(

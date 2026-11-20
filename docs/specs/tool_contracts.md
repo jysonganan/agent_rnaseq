@@ -86,7 +86,12 @@ threads: int = 8
 extra_args: list[str] = []
 quantification_mode: Literal["None", "TranscriptomeSAM", "GeneCounts"] = "GeneCounts"
 out_sam_type: str = "BAM SortedByCoordinate"
+alignment_mode: Literal["genome", "transcriptome", "both"] = "genome"
+read_group_id: str | None        # → --outSAMattrRGline ID:<id> SM:<sample> PL:ILLUMINA
+read_group_sample: str | None    #   (defaults to read_group_id); [A-Za-z0-9_.:-]{1,128}
 ```
+The executor sets the read group to the sanitised sample name — GATK HaplotypeCaller rejects BAMs
+without `@RG`.
 
 **Output: `STARAlignOutput`**
 ```python
@@ -704,9 +709,17 @@ nextflow -log <launch>/.nextflow.log run nextflow/main.nf -profile <local|awsbat
   --output_dir <stage dir> --tools_image <NEXTFLOW_TOOLS_IMAGE> [--<param> <value> ...]
 ```
 
-`overrides.config` comes from `build_config_overrides(execution)` (executor, cpus, memory, Batch
-queue, region). All processes run in the project's tools image, so tool versions equal the
-local ones; `tool_version` is taken from `docker/tool_versions.txt`. The worker polls the process,
+Also passed on every invocation: `--threads <execution.cpus>` and `--memory "<execution.memory_gb> GB"`
+(module `cpus`/`memory` directives read these params, so the run's settings apply), and
+`NEXTFLOW_EXTRA_ARGS` (e.g. `-stub-run`). The profile is `awsbatch` for `aws_batch` and
+`NEXTFLOW_LOCAL_PROFILE` for `nextflow` (`local` = tools image via Docker; `localtools` = tools on
+PATH, e.g. `environment/rnaseq-tools.yml`; append `,test` for tiny datasets).
+
+`overrides.config` comes from `build_config_overrides(execution)` (executor, Batch queue, region,
+work dir). All processes run in the project's tools image, so tool versions equal the local ones.
+Each process writes `<sid>.<tool>.version.txt` (published); the adapters use its first line as
+`tool_version`, falling back to `docker/tool_versions.txt`. Every module has a `stub:` block
+producing parseable outputs, used by the CI stub run (`docs/testing/executor_e2e.md`). The worker polls the process,
 terminates it on run cancellation, and on a non-zero exit raises `ToolExecutionError` with the
 last 2000 bytes of Nextflow's output.
 
@@ -715,7 +728,7 @@ Published files (per sample `--output_dir`) and the ToolOutput built from them:
 | Workflow | Params | Published files | ToolOutput(s) |
 |---|---|---|---|
 | `qc` | `fastq_r1`, `fastq_r2` | `<stem>_fastqc.{html,zip}` | `FastQCOutput` (summary read from the zip) |
-| `alignment` | `fastq_r1`, `fastq_r2`, `genome_dir`, `alignment_mode`, `threads` | `<sid>_Log.final.out`, `<sid>_SJ.out.tab`, `<sid>.sorted.bam(.bai)`, `<sid>_Aligned.toTranscriptome.out.bam` (mode ≠ genome) | `STARAlignOutput` (stats parsed from the log), `SamtoolsOutput` |
+| `alignment` | `fastq_r1`, `fastq_r2`, `genome_dir`, `alignment_mode`, `read_group` (@RG ID/SM; GATK needs it) | `<sid>_Log.final.out`, `<sid>_SJ.out.tab`, `<sid>.sorted.bam(.bai)`, `<sid>_Aligned.toTranscriptome.out.bam` (mode ≠ genome) | `STARAlignOutput` (stats parsed from the log), `SamtoolsOutput` |
 | `quantification` | `quant_mode` + `bam`,`gtf_path` (htseq) / `fastq_*`,`salmon_index` / `bam`,`rsem_reference` | `<sid>_counts.tsv` / `<sid>/quant.sf`, `<sid>/aux_info/meta_info.json` / `<sid>.{genes,isoforms}.results` | `HTSeqOutput` / `SalmonQuantOutput` / `RSEMOutput` |
 | `variant_calling` | `bam`, `bai`, `reference_fasta` (`.fai`, `.dict` alongside) | `<sid>.{raw,filtered}.vcf.gz(.tbi)` | `GATKHaplotypeCallerOutput`, `GATKVariantFilterOutput` (counts parsed from the VCFs) |
 

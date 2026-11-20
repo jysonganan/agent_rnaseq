@@ -66,6 +66,7 @@ dev = [
     "types-redis>=4.6.0",
     "sqlalchemy[mypy]>=2.0.30",
     "moto[s3,batch]>=5.0.0",
+    "pyyaml>=6.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -81,6 +82,9 @@ include = ["src*"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 addopts = "-v"
+markers = [
+    "e2e: opt-in end-to-end executor test (real Nextflow/tools/AWS); see docs/testing/executor_e2e.md",
+]
 
 [tool.ruff]
 line-length = 100

@@ -39,7 +39,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     python3-pip \
+    procps \
+    zip \
     && rm -rf /var/lib/apt/lists/*
+# procps: Nextflow needs `ps` inside every task container to collect task metrics.
+
+# ── AWS CLI v2 (pinned) — Nextflow's awsbatch executor stages task inputs/outputs
+#    to/from S3 with the AWS CLI *inside the task container*.
+ARG AWSCLI_VERSION=2.15.30
+RUN curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWSCLI_VERSION}.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscliv2.zip
 
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1

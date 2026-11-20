@@ -518,8 +518,17 @@ How it runs:
   logs stay in `<OUTPUT_ROOT>/<run_id>/nextflow/` on the worker; CloudWatch log streaming is not
   wired yet).
 
-`"executor": "nextflow"` uses the same pipeline with `-profile local` on the worker host (needs
-Docker available to the worker, since processes run in the tools image).
+`"executor": "nextflow"` uses the same pipeline on the worker host: `NEXTFLOW_LOCAL_PROFILE=local`
+runs processes in the tools image (Docker needed), `localtools` uses tools on PATH (e.g. the pinned
+conda env `environment/rnaseq-tools.yml`).
+
+**Validating the executors for real.** `infra/aws-batch/` contains a CloudFormation stack
+(encrypted auto-expiring bucket, ECR repo, Spot compute environment scaling to zero, job queue,
+least-privilege worker policy) and `deploy.sh` → `build_push_tools_image.sh` → `run_e2e.sh` →
+`teardown.sh`. `run_e2e.sh` runs a synthetic dataset with a known answer through
+`-profile awsbatch` and checks mapping, counting, DE recovery and variant calls. See
+[`docs/testing/executor_e2e.md`](docs/testing/executor_e2e.md) for all test levels, including the
+CI Nextflow stub run and a local real run.
 
 ---
 
@@ -723,6 +732,10 @@ make frontend-build
 pytest tests/ -v                         # all tests
 pytest tests/ -v --ignore=tests/integration  # unit tests only
 pytest tests/integration/ -v            # integration tests
+
+# Opt-in executor end-to-end runs (real Nextflow / tools / AWS) — docs/testing/executor_e2e.md
+E2E_EXECUTOR=nextflow E2E_STUB=1 NEXTFLOW_LOCAL_PROFILE=localtools,test \
+  pytest tests/e2e/test_executor_e2e.py -v -s     # Nextflow stub run (also in CI)
 ```
 
 ### Run frontend tests
@@ -816,7 +829,10 @@ agent_rnaseq/
 │       ├── data_models.md
 │       ├── tool_contracts.md
 │       └── safety_policy.md
-├── nextflow/                    # Nextflow DSL2 pipeline configs
+├── nextflow/                    # Nextflow DSL2 pipeline (per-stage, per-sample; stub blocks)
+├── environment/rnaseq-tools.yml # Pinned conda env (tools without Docker; = tool_versions.txt)
+├── infra/aws-batch/             # CloudFormation + deploy/build/run/teardown for AWS Batch e2e
+├── scripts/e2e/                 # Synthetic dataset with known answer + reference prep
 ├── tasks/                       # Backend implementation task files
 ├── tasks_frontend/              # Frontend implementation task files
 ├── Makefile

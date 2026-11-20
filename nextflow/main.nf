@@ -29,7 +29,11 @@ include { ALIGNMENT_WORKFLOW       } from './workflows/alignment'
 include { QUANTIFICATION_WORKFLOW  } from './workflows/quantification'
 include { VARIANT_CALLING_WORKFLOW } from './workflows/variant_calling'
 
-def NO_FILE = file("${projectDir}/assets/NO_FILE")
+// Placeholder for optional path inputs (a function: script-level `def` variables are not
+// visible inside other functions).
+def noFile() {
+    return file("${projectDir}/assets/NO_FILE", checkIfExists: true)
+}
 
 def required(name) {
     if (!params[name]) error "--${name} is required for --workflow ${params.workflow}"
@@ -37,7 +41,7 @@ def required(name) {
 }
 
 def optionalFile(name) {
-    return params[name] ? file(params[name], checkIfExists: true) : NO_FILE
+    return params[name] ? file(params[name], checkIfExists: true) : noFile()
 }
 
 def readsChannel() {
@@ -56,7 +60,7 @@ workflow {
 
         case 'quantification':
             if (params.quant_mode == 'salmon') {
-                QUANTIFICATION_WORKFLOW(readsChannel(), NO_FILE, required('salmon_index'), NO_FILE)
+                QUANTIFICATION_WORKFLOW(readsChannel(), noFile(), required('salmon_index'), noFile())
             } else if (params.quant_mode == 'rsem') {
                 // rsem_reference is an index prefix: stage its directory, pass the basename
                 def prefix = params.rsem_reference
@@ -65,12 +69,12 @@ workflow {
                 def rsemDir = file(prefix.substring(0, cut), checkIfExists: true)
                 QUANTIFICATION_WORKFLOW(
                     Channel.of(tuple(params.sample_id, required('bam'))),
-                    NO_FILE, NO_FILE, tuple(rsemDir, prefix.substring(cut + 1))
+                    noFile(), noFile(), tuple(rsemDir, prefix.substring(cut + 1))
                 )
             } else {
                 QUANTIFICATION_WORKFLOW(
                     Channel.of(tuple(params.sample_id, required('bam'))),
-                    required('gtf_path'), NO_FILE, NO_FILE
+                    required('gtf_path'), noFile(), noFile()
                 )
             }
             break

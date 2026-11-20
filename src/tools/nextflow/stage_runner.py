@@ -75,6 +75,15 @@ class NextflowBackendConfig:
     main_nf: str = MAIN_NF
     timeout_seconds: int = 24 * 60 * 60
     poll_seconds: float = 5.0
+    extra_args: list[str] = field(default_factory=list)  # e.g. ["-stub-run"] for CI
+
+    @property
+    def threads(self) -> int:
+        return int(self.execution.get("cpus") or 4)
+
+    @property
+    def memory(self) -> str:
+        return f"{int(self.execution.get('memory_gb') or 16)} GB"
 
 
 class NextflowStageRunner:
@@ -122,9 +131,15 @@ class NextflowStageRunner:
             output_dir,
             "--tools_image",
             self.cfg.tools_image,
+            "--threads",
+            str(self.cfg.threads),
+            "--memory",
+            self.cfg.memory,
+            *self.cfg.extra_args,
         ]
         for key, value in params.items():
-            if value is not None and value != "":
+            # resources come from the run's execution settings, not per-stage inputs
+            if key != "threads" and value is not None and value != "":
                 cmd += [f"--{key}", str(value)]
 
         stdout_path = os.path.join(launch, "nextflow.stdout")
@@ -159,6 +174,17 @@ class NextflowStageRunner:
     def _out(self, output_dir: str, name: str) -> str:
         return self._require(self.storage.join(output_dir, name))
 
+    def _version(self, output_dir: str, sample_id: str, tool: str, pinned: str) -> str | None:
+        """Version reported by the process that ran (``<sid>.<tool>.version.txt``);
+        falls back to the tools-image pin when the file is absent."""
+        path = self.storage.join(output_dir, f"{sample_id}.{tool}.version.txt")
+        if self.storage.exists(path):
+            with open(self.storage.localize(path)) as fh:
+                line = fh.readline().strip()
+            if line:
+                return line[:32]
+        return pinned_version(pinned)
+
     # ── per-stage compute functions ────────────────────────────────────────────
 
     def compute_for(self, stage: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -185,7 +211,7 @@ class NextflowStageRunner:
                 report_html_paths=html,
                 report_zip_paths=zips,
                 summary=summary,
-                tool_version=pinned_version("FastQC"),
+                tool_version=self._version(out_dir, inp["sample_id"], "fastqc", "FastQC"),
             )
         }
 
@@ -201,7 +227,7 @@ class NextflowStageRunner:
                 "fastq_r2": inp.get("fastq_r2"),
                 "genome_dir": inp["genome_dir"],
                 "alignment_mode": mode,
-                "threads": inp.get("threads"),
+                "read_group": inp.get("read_group"),
             },
         )
         log_path = self._out(out_dir, f"{sid}_Log.final.out")
@@ -221,10 +247,13 @@ class NextflowStageRunner:
             splice_junctions_path=self._out(out_dir, f"{sid}_SJ.out.tab"),
             transcriptome_bam_path=tx_bam,
             alignment_stats=stats,
-            tool_version=pinned_version("STAR"),
+            tool_version=self._version(out_dir, sid, "star", "STAR"),
         )
         samtools = SamtoolsOutput(
-            sorted_bam_path=bam, bai_path=bai, flagstat={}, tool_version=pinned_version("samtools")
+            sorted_bam_path=bam,
+            bai_path=bai,
+            flagstat={},
+            tool_version=self._version(out_dir, sid, "samtools", "samtools"),
         )
         return {"star": star, "samtools": samtools}
 
@@ -254,14 +283,14 @@ class NextflowStageRunner:
                 meta_info_path=meta_path,
                 inferred_lib_type=meta["inferred_lib_type"],
                 mapping_rate=meta["mapping_rate"],
-                tool_version=pinned_version("Salmon"),
+                tool_version=self._version(out_dir, sid, "salmon", "Salmon"),
             )
         elif method == "rsem":
             quant = RSEMOutput(
                 genes_results_path=self._out(out_dir, f"{sid}.genes.results"),
                 isoforms_results_path=self._out(out_dir, f"{sid}.isoforms.results"),
                 stat_dir=self.storage.join(out_dir, f"{sid}.stat"),
-                tool_version=pinned_version("RSEM"),
+                tool_version=self._version(out_dir, sid, "rsem", "RSEM"),
             )
         else:
             counts_path = self._out(out_dir, f"{sid}_counts.tsv")
@@ -273,7 +302,7 @@ class NextflowStageRunner:
                 counted_reads=stats["counted_reads"],
                 no_feature_reads=stats["no_feature_reads"],
                 ambiguous_reads=stats["ambiguous_reads"],
-                tool_version=pinned_version("HTSeq"),
+                tool_version=self._version(out_dir, sid, "htseq", "HTSeq"),
             )
         return {"quant": quant}
 
@@ -293,7 +322,7 @@ class NextflowStageRunner:
         filtered = self._out(out_dir, f"{sid}.filtered.vcf.gz")
         raw_counts = _count_vcf_variants(self.storage.localize(raw))
         counts = _count_vcf_variants(self.storage.localize(filtered))
-        version = pinned_version("GATK")
+        version = self._version(out_dir, sid, "gatk", "GATK")
         return {
             "haplotypecaller": GATKHaplotypeCallerOutput(
                 vcf_path=raw,

@@ -285,6 +285,7 @@ class OrchestratorAgent:
         """
         import dataclasses
         import os
+        import shlex
         import shutil
 
         from src.agents.stage_executor import _check_not_cancelled
@@ -346,7 +347,7 @@ class OrchestratorAgent:
         else:
             remote_root = None
             work_dir = os.path.join(run_root, "nextflow", "work")
-            profile = "local"
+            profile = settings.nextflow_local_profile
 
         storage = storage_for(remote_root or ctx.output_root, os.path.join(run_root, "s3_cache"))
         if remote_root:
@@ -370,6 +371,7 @@ class OrchestratorAgent:
                 execution=execution,
                 nextflow_bin=settings.nextflow_bin,
                 timeout_seconds=settings.nextflow_timeout_seconds,
+                extra_args=shlex.split(settings.nextflow_extra_args),
             ),
             storage=storage,
             should_cancel=_cancelled,

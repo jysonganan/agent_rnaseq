@@ -18,6 +18,7 @@ fgsea=1.28.0
 reactome.db=1.86.0
 Scanpy=1.9.8
 deepTools=3.5.5
+AWSCLI=2.15.30
 # CellRanger must be downloaded manually from 10x Genomics (licensed software).
 # See Dockerfile.tools for the documented download step.
 CellRanger=7.2.0

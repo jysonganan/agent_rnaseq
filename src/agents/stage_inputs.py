@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import posixpath
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -268,7 +269,14 @@ def _alignment(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
         "output_prefix": posixpath.join(out_dir, s.name + "_"),
         "threads": ctx.threads,
         "alignment_mode": _star_alignment_mode(ctx),
+        "read_group": _read_group(s),
     }
+
+
+def _read_group(s: SampleInfo) -> str:
+    """Filename/RG-safe sample label: the sample name, sanitised (falls back to the id)."""
+    label = re.sub(r"[^A-Za-z0-9_.:-]+", "_", s.name).strip("_")
+    return label[:128] or s.id
 
 
 def _star_alignment_mode(ctx: PipelineContext) -> str:
