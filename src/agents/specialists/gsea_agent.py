@@ -38,6 +38,7 @@ class GSEAAgent(BaseSpecialistAgent):
         try:
             run_uuid = _uuid.UUID(stage_input["run_id"])
             last_out = None
+            per_contrast: dict[str, dict] = {}
 
             for contrast_name, de_results_path in stage_input["de_results_paths"].items():
                 gsea_out = run_reactome_gsea(
@@ -69,11 +70,16 @@ class GSEAAgent(BaseSpecialistAgent):
                     stage.id, stage_input["run_id"], ArtifactType.gsea_result, gsea_out.results_path
                 )
                 last_out = gsea_out
+                per_contrast[contrast_name] = {
+                    "results_path": gsea_out.results_path,
+                    "significant_pathway_count": gsea_out.significant_pathway_count,
+                }
 
             self.db.flush()
             tool_version = last_out.tool_version if last_out else None
             self._complete_stage(stage, tool_version=tool_version)
             output_dict = last_out.model_dump() if last_out else {}
+            output_dict["per_contrast"] = per_contrast  # every contrast, not just the last
             return _make_stage_output("gsea", "completed", output_dict, tool_version)
 
         except ToolExecutionError as exc:

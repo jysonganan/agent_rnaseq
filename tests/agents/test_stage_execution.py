@@ -246,6 +246,9 @@ class RecordingEvents:
     def run_error(self, message: str) -> None:
         self.frames.append(("error", message))
 
+    def assistant_message(self, message_id: str, text: str) -> None:
+        self.frames.append(("assistant", message_id, text))
+
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
@@ -634,3 +637,98 @@ def test_dry_run_flag_from_api_uses_mocks_not_tools(db, tmp_path, tools) -> None
     assert status == RunStatus.completed
     assert tools["fastqc"].call_count == 0 and tools["star"].call_count == 0
     assert db.query(PipelineStage).count() == 0
+
+
+def test_dry_run_uses_validated_default_fixtures(db, tmp_path, tools) -> None:
+    run_id = _seed_run(db, tmp_path, BULK_STAGES)
+    agent = OrchestratorAgent(llm_client=None, dry_run=True)
+    final = agent.execute_run(db, run_id, events=RecordingEvents())
+    assert final["completed_stages"] == BULK_STAGES
+    de = final["stage_outputs"]["differential_expression"]
+    assert de["mock"] is True
+    assert de["output"]["contrast_summaries"]["treated_vs_control"]["upregulated"] == 320
+    assert tools["deseq2"].call_count == 0
+
+
+def test_every_fixture_matches_its_tool_output_model() -> None:
+    from src.agents.router import ALL_PIPELINE_STAGES
+    from src.tools.mock_registry import STAGE_FIXTURES, load_fixture
+
+    assert set(STAGE_FIXTURES) == set(ALL_PIPELINE_STAGES)
+    for stage in STAGE_FIXTURES:
+        load_fixture(stage)  # raises ValidationError on drift
+
+
+class TestArtifactIntegrity:
+    def _bam_writing_samtools(self, inp):  # type: ignore[no-untyped-def]
+        out = _fake_samtools(inp)
+        Path(out.sorted_bam_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out.sorted_bam_path).write_bytes(b"BAM" + inp.output_prefix.encode())
+        return out
+
+    def test_tampered_bam_stops_downstream_stage(self, db, tmp_path, tools) -> None:
+        run_id = _seed_run(db, tmp_path, ["alignment", "quantification"])
+        with patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            side_effect=self._bam_writing_samtools,
+        ):
+            agent = _agent()
+            # Run alignment only, then tamper, then resume quantification.
+            run = db.get(AnalysisRun, uuid.UUID(run_id))
+            run.run_config = {**run.run_config, "stages": ["alignment"]}
+            db.commit()
+            agent.execute_run(db, run_id, output_root=str(tmp_path / "out"))
+
+        from src.db.models.run import Artifact
+
+        bam = db.query(Artifact).filter_by(artifact_type="bam").first()
+        assert bam.checksum_md5
+        Path(bam.path).write_bytes(b"corrupted")
+
+        run = db.get(AnalysisRun, uuid.UUID(run_id))
+        run.run_config = {**run.run_config, "stages": ["alignment", "quantification"]}
+        db.commit()
+        final = _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        assert final["failed_stage"] == "quantification"
+        assert "checksum mismatch" in final["error_message"]
+        assert tools["htseq"].call_count == 0
+
+    def test_intact_artifacts_pass(self, db, tmp_path, tools) -> None:
+        run_id = _seed_run(db, tmp_path, ["alignment", "quantification"])
+        with patch(
+            "src.agents.specialists.alignment_agent.run_samtools_sort_index",
+            side_effect=self._bam_writing_samtools,
+        ):
+            final = _agent().execute_run(db, run_id, output_root=str(tmp_path / "out"))
+        assert final["failed_stage"] is None, final["error_message"]
+        assert tools["htseq"].call_count == 4
+
+
+def test_chat_run_gets_summary_message(db, tmp_path, tools) -> None:
+    from types import SimpleNamespace
+
+    from src.db.enums import MessageRole
+    from src.db.models.conversation import ChatMessage, Conversation
+
+    run_id = _seed_run(db, tmp_path, BULK_STAGES)
+    run = db.get(AnalysisRun, uuid.UUID(run_id))
+    conv = Conversation(created_by=run.created_by)
+    db.add(conv)
+    db.flush()
+    run.conversation_id = conv.id
+    db.commit()
+
+    llm = MagicMock()
+    llm.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="A clear effect. 42 genes."))]
+    )
+    events = RecordingEvents()
+    with patch("src.api.background.runner._summary_llm", return_value=llm):
+        status = execute_run_sync(db, run_id, events=events, output_root=str(tmp_path / "out"))
+    assert status == RunStatus.completed
+
+    msg = db.query(ChatMessage).filter_by(run_id=run.id, role=MessageRole.assistant).one()
+    assert msg.content.startswith("Run **bulk** completed.")
+    assert "A clear effect." in msg.content and "42 genes" not in msg.content
+    assert "DE `treated_vs_control`: 1 up, 1 down of 2 genes tested" in msg.content
+    assert ("assistant", str(msg.id), msg.content) in events.frames

@@ -431,7 +431,8 @@ cluster_summary: dict            # n_clusters, cells_per_cluster
 ## 9. Visualization Tools
 
 ### `prepare_streamlit_data`
-Aggregates pipeline results into Streamlit-ready data files.
+Aggregates pipeline results into Streamlit-ready data files. Pure Python; copies values verbatim
+from tool outputs (no recomputation).
 
 **Input: `StreamlitDataPrepInput`**
 ```python
@@ -442,11 +443,24 @@ qc_metrics_path: str | None
 output_dir: str
 ```
 
+Input semantics: `de_results_dir` holds DESeq2 `<contrast>_results.csv` files;
+`gsea_results_dir` holds `<contrast>/gsea_results.csv`; `qc_metrics_path` is a JSON file
+`{"samples": [{"sample": str, "total_reads": int, "mapping_rate": float, "fastqc_pass": int,
+"fastqc_warn": int, "fastqc_fail": int}, ...]}` written by the stage executor from validated QC /
+alignment outputs. All inputs are optional; missing ones are simply not listed.
+
 **Output: `StreamlitDataPrepOutput`**
 ```python
 output_dir: str
 manifest_path: str               # JSON listing available data files
 ```
+
+Files written to `output_dir`: `de_results.csv` (all contrasts, extra column `contrast`),
+`gsea_results.csv` (all contrasts, extra column `contrast`), `qc_metrics.json`, and
+`manifest.json` = `{"run_id": str, "available": {"de_results"?: "de_results.csv",
+"gsea_results"?: "gsea_results.csv", "qc_metrics"?: "qc_metrics.json"}}` — the format read by
+`src/streamlit/data_loader.py`. Raises `ToolValidationError` if a DE/GSEA CSV lacks the expected
+header columns.
 
 ---
 
@@ -462,10 +476,17 @@ track_name_prefix: str
 chrom_sizes_path: str
 ```
 
+`chrom_sizes_path` is optional (not needed by `bamCoverage`, which reads the BAM header); kept
+for future bedGraph-based tracks.
+
+Implementation: one deepTools `bamCoverage --normalizeUsing CPM --binSize 10` subprocess per BAM
+(BAM index must exist next to it), then a UCSC track hub (`hub.txt`, `genomes.txt`,
+`<genome_build>/trackDb.txt`) referencing the bigWigs by relative URL.
+
 **Output: `UCSCTrackOutput`**
 ```python
 bigwig_paths: list[str]
-track_hub_path: str              # trackDb.txt
+track_hub_path: str              # <output_dir>/<genome_build>/trackDb.txt (hub.txt is in output_dir)
 ```
 
 ---
@@ -486,6 +507,15 @@ artifact_paths: dict[str, str]
 output_dir: str
 template_path: str
 ```
+
+Input semantics (all values come from validated tool outputs — never LLM text):
+- `qc_summary`: `{sample_id: FastQCOutput dict}` → per-sample PASS/WARN/FAIL module counts.
+- `de_summary`: `{contrast: DEContrastSummary dict}` → genes tested / up / down per contrast.
+- `gsea_summary`: `{contrast: {"significant_pathway_count": int}}`.
+- `artifact_paths`: `{label: path}` → listed by file name.
+- `template_path`: HTML file with `string.Template` placeholders `$title` and `$body`.
+
+Every interpolated value is HTML-escaped. Writes `report.md` and `report.html` into `output_dir`.
 
 **Output: `ReportOutput`**
 ```python
@@ -580,26 +610,27 @@ Validation must occur in `OrchestratorAgent` before dispatching to LangGraph.
 
 When `RunConfig.dry_run = True` (dev/test mode only; not settable by LLM; must be set in API request body), all tool calls return pre-defined fixture outputs instead of executing real processes.
 
-Fixture files live in `tests/fixtures/mock_tool_outputs/`:
+Fixture files ship with the application in `src/tools/mock_outputs/` (package data — they must
+be available in the API/worker image, not only in `tests/`), one per stage:
 ```
-fastqc_output.json
-multiqc_output.json
-rseqc_output.json
-star_align_output.json
-samtools_output.json
-htseq_output.json
-salmon_quant_output.json
-rsem_output.json
-gatk_haplotypecaller_output.json
-gatk_variant_filter_output.json
-rmats_output.json
-deseq2_output.json
-reactome_gsea_output.json
-cellranger_count_output.json
-scanpy_output.json
+fastqc_output.json            → qc                       (FastQCOutput)
+star_align_output.json        → alignment                (STARAlignOutput)
+htseq_output.json             → quantification           (HTSeqOutput)
+gatk_variant_filter_output.json → variant_calling        (GATKVariantFilterOutput)
+rmats_output.json             → splicing                 (RMATSOutput)
+deseq2_output.json            → differential_expression  (DESeq2Output)
+reactome_gsea_output.json     → gsea                     (ReactomeGSEAOutput)
+scanpy_output.json            → scrna_seq                (ScanpyOutput)
+streamlit_prep_output.json    → visualization            (StreamlitDataPrepOutput)
+report_output.json            → report                   (ReportOutput)
 ```
 
-Each fixture is a JSON serialization of the corresponding `ToolOutput` Pydantic model. The `MockToolRegistry` (currently `src/agents/base_agent.py`) maps stage names to fixture dicts and is injected at the `BaseStageAgent` level when `dry_run=True`. `OrchestratorAgent.execute_run(..., mock_registry=...)` passes it to every specialist; when none is given, dry-run stages complete with an empty output. Loading the fixture files from `tests/fixtures/mock_tool_outputs/` is not implemented yet.
+Each fixture is a JSON serialization of the corresponding `ToolOutput` Pydantic model and is
+**validated against that model when loaded** (`src/tools/mock_registry.py::load_default_registry`),
+so fixture drift fails loudly. The registry maps stage name → `StageOutput` dict (with
+`"mock": true`) and is injected at the `BaseStageAgent` level when `dry_run=True`;
+`execute_run` uses it by default for dry runs. Dry-run stages spawn no subprocesses and write no
+per-stage DB rows; `RunState.stage_outputs` has the same shape as a real run.
 
 ---
 
@@ -615,8 +646,8 @@ OrchestratorAgent(llm_client=None, dry_run=False).execute_run(
 ```
 
 - Raises `OrchestratorError` before any tool runs if: the run is missing, stages violate the
-  dependency map, user analysis inputs are missing/inconsistent (`run_requirements.py`), or
-  `executor != local`.
+  dependency map, user analysis inputs are missing/inconsistent (`run_requirements.py`), or the
+  executor's prerequisites are missing (see "Executors" below).
 - Stage inputs are built by `src/agents/stage_inputs.py::build_stage_inputs(stage, ctx,
   stage_outputs)` from DB records and upstream outputs only (never LLM text):
 
@@ -630,11 +661,15 @@ OrchestratorAgent(llm_client=None, dry_run=False).execute_run(
 | `splicing` | per user contrast | numerator/denominator BAMs, genome GTF, `read_length` |
 | `differential_expression` | once | `build_count_matrix` + `write_sample_metadata` over all samples; user `de_contrasts`; `alpha`, `lfc_threshold` |
 | `gsea` | once | DE `results_paths`; organism from `ReferenceGenome.species` (human/mouse) |
-| `visualization` | once | DE/GSEA/QC output dirs, BAMs if aligned, `<fasta>.fai` as chrom sizes |
-| `report` | once | upstream validated outputs and artifact paths |
+| `visualization` | once | DE/GSEA output dirs; a QC metrics JSON written from validated QC/alignment outputs; BAMs (+BAI) if aligned |
+| `report` | once | DE `contrast_summaries`, GSEA `per_contrast` counts, QC outputs, artifact paths; `src/tools/report/template.html` |
 
-- Specialists are called via `BaseSpecialistAgent.run_stage(input)`, which stores the input as
-  `PipelineStage.input_params` and sets `started_at`, `completed_at`, `executor`.
+- Specialists are called via `BaseSpecialistAgent.run_stage(input, compute=None, executor="local")`,
+  which stores the input as `PipelineStage.input_params` and sets `started_at`, `completed_at`
+  and `executor` (where the tools actually ran).
+- **Artifact re-verification (Rule 10)**: before a stage's tools run, every input path that is a
+  local `Artifact` of the same run with a recorded checksum is re-hashed
+  (`src/agents/artifact_integrity.py`); a missing file or changed MD5 fails the stage.
 - `RunState.stage_outputs[stage]` is `{"samples": {sample_id: StageOutput}}`,
   `{"contrasts": {name: StageOutput}}`, or a single `StageOutput`
   (`{stage_name, status, output, tool_version, summary}`); a failed per-item stage keeps its
@@ -642,6 +677,53 @@ OrchestratorAgent(llm_client=None, dry_run=False).execute_run(
 - Failure semantics: the failing invocation's uncommitted rows are rolled back, a `failed`
   `PipelineStage` audit row is written with its `input_params`, `failed_stage` /
   `error_message` (sanitized, ≤1000 chars) are set, the graph ends.
+
+### Executors
+
+`run_config.execution.executor` selects where the **heavy per-sample stages** (`qc`,
+`alignment`, `quantification`, `variant_calling`) run. All other stages always run in the worker.
+
+| Executor | Heavy stages | Outputs published to | Prerequisites (checked at start) |
+|---|---|---|---|
+| `local` | tool subprocesses in the worker | `{OUTPUT_ROOT}/{run_id}/{stage}/{sample_id}/` | — |
+| `nextflow` | `nextflow run nextflow/main.nf -profile local` | same local paths | `nextflow` on the worker's PATH (`NEXTFLOW_BIN`) |
+| `aws_batch` | `nextflow run nextflow/main.nf -profile awsbatch` (one Batch job per process) | `s3://{S3_ARTIFACT_BUCKET}/runs/{run_id}/{stage}/{sample_id}/` | `nextflow` on PATH, `S3_ARTIFACT_BUCKET`, `AWS_BATCH_JOB_QUEUE`, and `s3://` paths for every sample FASTQ, genome FASTA/GTF and STAR index |
+
+Heavy specialists are split into `compute(stage_input) -> {role: ToolOutput}` and
+`persist(stage, stage_input, outs) -> StageOutput`; the Nextflow backend replaces only
+`compute`, so DB rows/artifacts are written by the same code for every executor.
+
+### Nextflow backend (`src/tools/nextflow/stage_runner.py`)
+
+`NextflowStageRunner.compute_for(stage)(stage_input)` runs one workflow for one sample:
+
+```
+nextflow -log <launch>/.nextflow.log run nextflow/main.nf -profile <local|awsbatch>
+  -c <launch>/overrides.config -work-dir <local dir | s3://bucket/nextflow-work/<run_id>>
+  --workflow <qc|alignment|quantification|variant_calling> --sample_id <sample uuid>
+  --output_dir <stage dir> --tools_image <NEXTFLOW_TOOLS_IMAGE> [--<param> <value> ...]
+```
+
+`overrides.config` comes from `build_config_overrides(execution)` (executor, cpus, memory, Batch
+queue, region). All processes run in the project's tools image, so tool versions equal the
+local ones; `tool_version` is taken from `docker/tool_versions.txt`. The worker polls the process,
+terminates it on run cancellation, and on a non-zero exit raises `ToolExecutionError` with the
+last 2000 bytes of Nextflow's output.
+
+Published files (per sample `--output_dir`) and the ToolOutput built from them:
+
+| Workflow | Params | Published files | ToolOutput(s) |
+|---|---|---|---|
+| `qc` | `fastq_r1`, `fastq_r2` | `<stem>_fastqc.{html,zip}` | `FastQCOutput` (summary read from the zip) |
+| `alignment` | `fastq_r1`, `fastq_r2`, `genome_dir`, `alignment_mode`, `threads` | `<sid>_Log.final.out`, `<sid>_SJ.out.tab`, `<sid>.sorted.bam(.bai)`, `<sid>_Aligned.toTranscriptome.out.bam` (mode ≠ genome) | `STARAlignOutput` (stats parsed from the log), `SamtoolsOutput` |
+| `quantification` | `quant_mode` + `bam`,`gtf_path` (htseq) / `fastq_*`,`salmon_index` / `bam`,`rsem_reference` | `<sid>_counts.tsv` / `<sid>/quant.sf`, `<sid>/aux_info/meta_info.json` / `<sid>.{genes,isoforms}.results` | `HTSeqOutput` / `SalmonQuantOutput` / `RSEMOutput` |
+| `variant_calling` | `bam`, `bai`, `reference_fasta` (`.fai`, `.dict` alongside) | `<sid>.{raw,filtered}.vcf.gz(.tbi)` | `GATKHaplotypeCallerOutput`, `GATKVariantFilterOutput` (counts parsed from the VCFs) |
+
+A missing published file raises `ToolValidationError`. Only small files (logs, counts, FastQC
+zips, VCFs, Salmon metadata) are read by the worker; with `aws_batch` they are downloaded to
+`{OUTPUT_ROOT}/{run_id}/s3_cache/`. Worker-side consumers of remote files: DESeq2 (counts files)
+and — when requested — `splicing` (rMATS) and `visualization` (bamCoverage), which **download
+the BAMs** to the cache. Artifacts on S3 have no `checksum_md5` (not re-verified by the worker).
 
 
 ---

@@ -23,6 +23,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from src.agents.artifact_integrity import verify_input_artifacts
 from src.agents.base_agent import MockToolRegistry
 from src.agents.run_events import NullRunEvents, RunEvents, output_excerpt
 from src.agents.sanitize import sanitize_text
@@ -47,6 +48,7 @@ from src.agents.stage_inputs import (
 )
 from src.agents.state import RunState
 from src.db.enums import Executor, RunStatus, StageName, StageStatus
+from src.tools.nextflow.stage_runner import NEXTFLOW_STAGES, NextflowCancelledError
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,8 @@ class StageRuntime:
     mock_registry: MockToolRegistry | None = None
     llm_client: Any = None
     events: RunEvents = field(default_factory=NullRunEvents)
+    # Nextflow compute backend for heavy per-sample stages (executor nextflow/aws_batch)
+    backend: Any = None
 
 
 def _run_row(db: Session, run_id: str) -> Any:
@@ -151,7 +155,9 @@ def _check_not_cancelled(db: Session, run_id: str) -> None:
         raise RunCancelledError(f"Run {run_id} was cancelled")
 
 
-def _record_failed_attempt(db: Session, run_id: str, stage: str, inp: dict) -> None:
+def _record_failed_attempt(
+    db: Session, run_id: str, stage: str, inp: dict, executor: str = "local"
+) -> None:
     """Audit row for an invocation whose own (uncommitted) rows were rolled back."""
     from src.db.models.run import PipelineStage
 
@@ -165,7 +171,7 @@ def _record_failed_attempt(db: Session, run_id: str, stage: str, inp: dict) -> N
             status=StageStatus.failed,
             tool_name=tool,
             input_params=json.loads(json.dumps(inp, default=str)),
-            executor=Executor.local,
+            executor=Executor(executor),
             started_at=now,
             completed_at=now,
         )
@@ -189,10 +195,13 @@ def _execute(stage: str, state: RunState, rt: StageRuntime) -> dict:
         result = agent.execute(state)
         if result["status"] != "completed":
             raise RuntimeError(result["error"] or "dry-run stage failed")
-        return {"output": result["output"] or {}}
+        output = result["output"] or {}
+        # Default fixtures are already StageOutput-shaped; wrap bare custom fixtures.
+        return output if "stage_name" in output else {"output": output}
 
     assert rt.ctx is not None
     inputs = build_stage_inputs(stage, rt.ctx, state.get("stage_outputs", {}))
+    verify_input_artifacts(rt.db, state["run_id"], inputs)  # Rule 10
 
     if stage in PER_SAMPLE_STAGES or stage in PER_CONTRAST_STAGES:
         key, item_field = (
@@ -208,8 +217,11 @@ def _execute(stage: str, state: RunState, rt: StageRuntime) -> dict:
             try:
                 _check_not_cancelled(rt.db, state["run_id"])
                 rt.events.log("info", stage, _agent_name(stage), f"{stage}: starting {item}")
-                done[item] = agent.run_stage(inp)
-            except RunCancelledError as exc:
+                compute, executor = None, "local"
+                if rt.backend is not None and stage in NEXTFLOW_STAGES:
+                    compute, executor = rt.backend.compute_for(stage), rt.ctx.executor
+                done[item] = agent.run_stage(inp, compute=compute, executor=executor)
+            except (RunCancelledError, NextflowCancelledError) as exc:
                 raise StageFailure(exc, None, {key: done}) from exc
             except Exception as exc:
                 raise StageFailure(exc, inp, {key: done}) from exc
@@ -254,7 +266,14 @@ def make_stage_node(stage: str, rt: StageRuntime) -> Callable[[RunState], dict]:
                 # DEG/QC rows survive), but keep an audit record of the attempt.
                 rt.db.rollback()
                 if isinstance(raw, StageFailure) and raw.failed_input is not None:
-                    _record_failed_attempt(rt.db, run_id, stage, raw.failed_input)
+                    remote = rt.backend is not None and stage in NEXTFLOW_STAGES
+                    _record_failed_attempt(
+                        rt.db,
+                        run_id,
+                        stage,
+                        raw.failed_input,
+                        rt.ctx.executor if remote and rt.ctx else "local",
+                    )
                 _checkpoint(rt.db, state, update)
             rt.events.stage_update(stage, "failed")
             rt.events.tool_call(_tool_fn(stage, rt), "failed")

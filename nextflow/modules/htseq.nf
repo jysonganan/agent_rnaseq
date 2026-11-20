@@ -1,8 +1,8 @@
 // HTSeq-count gene quantification module
 process HTSEQ_COUNT {
     tag "${sample_id}"
-    container 'biocontainers/htseq:2.0.2--py310h4b6aa87_0'
-    cpus 4
+    publishDir params.output_dir, mode: 'copy'
+    cpus 1
     memory '8 GB'
 
     input:
@@ -14,14 +14,7 @@ process HTSEQ_COUNT {
 
     script:
     """
-    htseq-count \
-        --format bam \
-        --order pos \
-        --stranded reverse \
-        --mode union \
-        --quiet \
-        ${bam} \
-        ${gtf} \
-        > ${sample_id}_counts.tsv
+    htseq-count --format bam --order pos --stranded reverse --mode union \\
+        ${bam} ${gtf} > ${sample_id}_counts.tsv
     """
 }

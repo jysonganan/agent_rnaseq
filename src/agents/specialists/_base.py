@@ -16,6 +16,7 @@ from src.agents.base_agent import BaseStageAgent, MockToolRegistry
 from src.agents.state import RunState
 from src.db.enums import ArtifactType, Executor, StageName, StageStatus
 from src.db.models.run import Artifact, PipelineStage
+from src.tools.base import ToolExecutionError
 
 
 class StageOutput(dict):
@@ -57,17 +58,59 @@ class BaseSpecialistAgent(BaseStageAgent, abc.ABC):
         self.db = db
         self.llm_client = llm_client
         self._audit_input: dict[str, Any] | None = None
+        self._audit_executor: Executor = Executor.local
 
-    def run_stage(self, stage_input: Any) -> dict[str, Any]:
+    def run_stage(
+        self, stage_input: Any, compute: Any = None, executor: str = "local"
+    ) -> dict[str, Any]:
         """Run one stage invocation, recording ``stage_input`` as the audit input.
 
         Used by the LangGraph executor; ``run()`` may still be called directly.
+        ``compute`` replaces the specialist's own tool calls (e.g. a Nextflow backend);
+        only specialists that implement ``compute``/``persist`` accept it.
         """
         self._audit_input = json.loads(json.dumps(dict(stage_input), default=str))
+        self._audit_executor = Executor(executor)
         try:
-            return self.run(stage_input)
+            if compute is None:
+                return self.run(stage_input)
+            if not self.supports_external_compute:
+                raise TypeError(f"{type(self).__name__} cannot use an external compute backend")
+            return self._run_split(stage_input, compute)
         finally:
             self._audit_input = None
+            self._audit_executor = Executor.local
+
+    # ── compute / persist split (heavy, per-sample stages) ───────────────────────
+
+    supports_external_compute: bool = False
+
+    def tool_name(self, stage_input: Any) -> str:  # pragma: no cover - overridden
+        raise NotImplementedError
+
+    def compute(self, stage_input: Any) -> dict[str, Any]:  # pragma: no cover - overridden
+        """Run the tools; return validated ToolOutput models keyed by role."""
+        raise NotImplementedError
+
+    def persist(
+        self, stage: PipelineStage, stage_input: Any, outs: dict[str, Any]
+    ) -> dict[str, Any]:  # pragma: no cover - overridden
+        """Write result/artifact rows from validated outputs; return the StageOutput."""
+        raise NotImplementedError
+
+    def _run_split(self, stage_input: Any, compute: Any) -> dict[str, Any]:
+        stage = self._start_stage(
+            stage_input["run_id"],
+            StageName(self.stage_name),
+            self.tool_name(stage_input),
+            sample_id=stage_input.get("sample_id"),
+        )
+        try:
+            outs = compute(stage_input)
+            return self.persist(stage, stage_input, outs)
+        except ToolExecutionError as exc:
+            self._fail_stage(stage, str(exc))
+            raise
 
     # ── LangGraph bridge ────────────────────────────────────────────────────────
 
@@ -99,7 +142,7 @@ class BaseSpecialistAgent(BaseStageAgent, abc.ABC):
             status=StageStatus.running,
             tool_name=tool_name,
             input_params=self._audit_input,
-            executor=Executor.local,
+            executor=self._audit_executor,
             started_at=datetime.now(UTC),
         )
         self.db.add(stage)

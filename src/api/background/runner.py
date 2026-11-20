@@ -70,7 +70,26 @@ def execute_run_sync(db: Session, run_id: str, **execute_kwargs: Any) -> RunStat
     run.completed_at = datetime.now(UTC)
     run.agent_state = final
     db.commit()
+
+    if run.conversation_id is not None and run.status != RunStatus.cancelled:
+        try:
+            OrchestratorAgent(llm_client=_summary_llm()).summarize_run(db, run_id, final, events)
+        except Exception:  # the summary must never change the run outcome
+            logger.warning("run_pipeline: summary for run %s failed", run_id, exc_info=True)
+            db.rollback()
     return run.status
+
+
+def _summary_llm() -> Any:
+    """OpenAI client for the post-run narrative; None disables the narrative."""
+    try:
+        from openai import OpenAI
+
+        from src.config import get_settings
+
+        return OpenAI(api_key=get_settings().openai_api_key)
+    except Exception:
+        return None
 
 
 def _events_for(db: Session, run: Any) -> RunEvents:

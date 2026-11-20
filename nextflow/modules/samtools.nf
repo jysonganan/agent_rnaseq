@@ -1,8 +1,8 @@
 // samtools sort + index module
 process SAMTOOLS_SORT_INDEX {
     tag "${sample_id}"
-    container 'biocontainers/samtools:1.17--h00cdaf9_0'
-    cpus 4
+    publishDir params.output_dir, mode: 'copy'
+    cpus params.threads
     memory '8 GB'
 
     input:
@@ -14,13 +14,7 @@ process SAMTOOLS_SORT_INDEX {
 
     script:
     """
-    samtools sort \
-        -@ ${task.cpus} \
-        -o ${sample_id}.sorted.bam \
-        ${bam}
-
-    samtools index \
-        -@ ${task.cpus} \
-        ${sample_id}.sorted.bam
+    samtools sort -@ ${task.cpus} -o ${sample_id}.sorted.bam ${bam}
+    samtools index -@ ${task.cpus} ${sample_id}.sorted.bam
     """
 }

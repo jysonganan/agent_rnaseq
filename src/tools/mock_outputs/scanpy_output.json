@@ -1,0 +1,19 @@
+{
+  "h5ad_path": "mock/scrna_seq/adata.h5ad",
+  "umap_plot_path": "mock/scrna_seq/umap.png",
+  "marker_genes_path": "mock/scrna_seq/markers.csv",
+  "cluster_summary": {
+    "n_clusters": 8,
+    "cells_per_cluster": {
+      "0": 700,
+      "1": 520,
+      "2": 410,
+      "3": 300,
+      "4": 260,
+      "5": 190,
+      "6": 120,
+      "7": 70
+    }
+  },
+  "tool_version": "scanpy 1.9.8 (mock)"
+}

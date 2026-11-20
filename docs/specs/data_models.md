@@ -108,7 +108,7 @@ Individual stage execution record within a run.
 | `tool_version` | VARCHAR(32) | | |
 | `input_params` | JSONB | | Validated stage input (the specialist `StageInput`, set at insert) |
 | `output_summary` | JSONB | | Validated tool output summary |
-| `executor` | ENUM | | `local`, `nextflow`, `aws_batch` |
+| `executor` | ENUM | | `local`, `nextflow`, `aws_batch` — where this invocation's tools actually ran (light stages are always `local`) |
 | `batch_job_id` | VARCHAR(128) | | AWS Batch job ID if applicable |
 | `exit_code` | INTEGER | | Process exit code; 0 = success |
 | `log_path` | TEXT | | |

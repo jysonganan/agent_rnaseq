@@ -122,3 +122,30 @@ def cancel_run(
     run.status = RunStatus.cancelled
     db.commit()
     return CancelRunOut(run_id=run.id, status=RunStatus.cancelled)
+
+
+@router.post("/{run_id}/retry", status_code=202, response_model=RunCreatedOut)
+@limiter.limit("10/minute")
+async def retry_run(
+    request: Request,
+    run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: APIKey = Depends(require_api_key),
+) -> RunCreatedOut:
+    run = db.get(AnalysisRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run {run_id!s} not found")
+    if run.status not in (RunStatus.failed, RunStatus.cancelled):
+        raise HTTPException(status_code=409, detail=f"Cannot retry run in status {run.status}")
+    run.status = RunStatus.pending
+    run.error_message = None
+    run.completed_at = None
+    db.commit()
+
+    await _enqueue_run(str(run.id))
+
+    done = list((run.agent_state or {}).get("completed_stages") or [])
+    message = "Run re-queued; " + (
+        f"resuming after: {', '.join(done)}" if done else "starting from the first stage"
+    )
+    return RunCreatedOut(run_id=run.id, status=RunStatus.pending, message=message)

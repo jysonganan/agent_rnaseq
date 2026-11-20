@@ -1,0 +1,18 @@
+{
+  "results_paths": {
+    "treated_vs_control": "mock/differential_expression/treated_vs_control_results.csv"
+  },
+  "normalized_counts_path": "mock/differential_expression/normalized_counts.csv",
+  "size_factors_path": "mock/differential_expression/size_factors.csv",
+  "dispersion_plot_path": "mock/differential_expression/dispersion.pdf",
+  "pca_plot_path": "mock/differential_expression/pca.pdf",
+  "contrast_summaries": {
+    "treated_vs_control": {
+      "total_genes": 15000,
+      "upregulated": 320,
+      "downregulated": 280,
+      "not_significant": 14400
+    }
+  },
+  "tool_version": "DESeq2 1.42.0 (mock)"
+}

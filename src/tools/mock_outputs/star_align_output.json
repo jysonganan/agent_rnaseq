@@ -1,0 +1,15 @@
+{
+  "bam_path": "mock/alignment/Aligned.sortedByCoord.out.bam",
+  "bam_index_path": "mock/alignment/Aligned.sortedByCoord.out.bam.bai",
+  "log_final_path": "mock/alignment/Log.final.out",
+  "splice_junctions_path": "mock/alignment/SJ.out.tab",
+  "gene_counts_path": "mock/alignment/ReadsPerGene.out.tab",
+  "transcriptome_bam_path": null,
+  "alignment_stats": {
+    "total_reads": 1000000,
+    "uniquely_mapped_pct": 91.5,
+    "multi_mapped_pct": 4.2,
+    "unmapped_pct": 4.3
+  },
+  "tool_version": "STAR 2.7.11b (mock)"
+}

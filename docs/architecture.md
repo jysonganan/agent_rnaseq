@@ -74,13 +74,19 @@ Sub-agents are deterministic: they call tools, validate outputs, and write
 - All bioinformatics computations are Python or R functions, not LLM calls.
 - Each tool is a typed Python function: `input: ToolInput → output: ToolOutput`.
 - Inputs and outputs validated with Pydantic before/after execution.
-- Tool functions can dispatch to: local subprocess, Nextflow pipeline, or AWS Batch job.
+- Tools run as local subprocesses; for `executor = nextflow | aws_batch` the heavy per-sample
+  stages run through the Nextflow layer instead (§2.4, §3.1).
 
 ### 2.4 Nextflow Pipeline Layer
-- Nextflow DSL2 workflows wrap multi-step tool chains.
-- Used for compute-heavy phases: alignment, quantification, variant calling.
-- Supports local executor and AWS Batch executor transparently.
-- FASTQ files read from local disk or S3.
+- `nextflow/main.nf` (DSL2) runs one workflow — `qc`, `alignment`, `quantification` or
+  `variant_calling` — for one sample per invocation, publishing to `--output_dir`.
+- Profiles: `local` (`executor = nextflow`) and `awsbatch` (`executor = aws_batch`, one Batch
+  job per process, S3 work dir and outputs). Every process runs in the project's tools image
+  (`NEXTFLOW_TOOLS_IMAGE`), so tool versions match local execution.
+- Driven by `src/tools/nextflow/stage_runner.py`: the worker launches Nextflow, waits (polling
+  for cancellation), then rebuilds the same validated ToolOutput models from the published
+  files; the specialist then writes DB rows exactly as for a local run.
+- Light stages (DESeq2, GSEA, rMATS, visualization, report) always run in the worker.
 
 ### 2.5 State & Persistence (LangGraph + SQLAlchemy)
 - LangGraph `StateGraph` manages agent routing and branching.
@@ -155,7 +161,8 @@ chat dispatch_from_chat ┴─► AnalysisRun(pending) + RunSample rows ─► A
 src/worker.py (arq) ─► execute_run_sync()  [src/api/background/runner.py] │
    status=running ─► OrchestratorAgent.execute_run(db, run_id) ◄──────────┘
         1. load PipelineContext (run, samples, genome)      [stage_inputs.py]
-        2. re-check stage dependencies + user inputs; only executor=local accepted
+        2. re-check stage dependencies + user inputs; check executor prerequisites
+           and build the Nextflow backend for nextflow / aws_batch
         3. build graph: build_pipeline_graph(stage_node_factory(runtime))
         4. graph.invoke(RunState restored from agent_state)
                router ──► <stage> node ──► router ──► … ──► END
@@ -166,8 +173,11 @@ Each stage node (`src/agents/stage_executor.py`):
 1. Checks the run was not cancelled (also before every sample/contrast).
 2. Builds the specialist's typed input(s) deterministically from the DB and upstream
    `stage_outputs` (e.g. sorted BAMs from alignment, merged counts matrix for DESeq2).
-3. Runs the specialist once per sample (`qc`, `alignment`, `quantification`,
+3. Re-verifies the MD5 of every local upstream artifact the inputs reference (Rule 10).
+   Runs the specialist once per sample (`qc`, `alignment`, `quantification`,
    `variant_calling`, `scrna_seq`), once per user contrast (`splicing`), or once per run.
+   For `nextflow` / `aws_batch`, the heavy specialists' `compute` step is the Nextflow
+   backend; their `persist` step (DB rows, artifacts) is unchanged.
 4. Commits after each finished sample/contrast; records the validated output in
    `RunState.stage_outputs[stage]` (`{"samples": {...}}`, `{"contrasts": {...}}` or the
    `StageOutput` dict) and checkpoints to `AnalysisRun.agent_state`.
@@ -177,8 +187,19 @@ Each stage node (`src/agents/stage_executor.py`):
    graph. Re-running resumes: completed stages and finished samples/contrasts are skipped.
 6. Publishes progress events (§5).
 
-`dry_run=true` (API request body only) runs the same graph with specialists returning
-`MockToolRegistry` fixtures: no input resolution, subprocesses, or DB writes per stage.
+After the graph ends, the worker sets the run status and — for chat-originated runs — the
+orchestrator posts a run summary to the conversation (§4). `POST /runs/{id}/retry` re-queues a
+failed or cancelled run, which resumes from the checkpoint.
+
+| Executor | Heavy per-sample stages | Outputs |
+|---|---|---|
+| `local` | tool subprocesses in the worker | `{OUTPUT_ROOT}/{run_id}/…` |
+| `nextflow` | `nextflow -profile local` on the worker host | `{OUTPUT_ROOT}/{run_id}/…` |
+| `aws_batch` | `nextflow -profile awsbatch` → AWS Batch | `s3://{S3_ARTIFACT_BUCKET}/runs/{run_id}/…`; worker downloads small result files (and BAMs only for splicing / genome tracks) |
+
+`dry_run=true` (API request body only) runs the same graph with specialists returning the
+validated fixtures in `src/tools/mock_outputs/` (`src/tools/mock_registry.py`): no input
+resolution, subprocesses, or DB writes per stage.
 
 Quantification tool selection is derived from `AnalysisRun.aligner`: `star → HTSeq`,
 `salmon → Salmon`, `rsem → RSEM` (STAR then also emits a transcriptome BAM).
@@ -212,11 +233,12 @@ deterministic question listing the available conditions. The created run's plan
 
 **OpenAI Agents SDK is used for:**
 - Single-turn LLM completions for intent parsing (converting natural language to `RunConfig`).
-- Single-turn LLM completions for stage summaries (converting `StageOutput` to human-readable narrative). *Not implemented yet* — today the chat shows `tool_call` frames whose `summary` is a JSON excerpt of the validated output.
+- One single-turn LLM completion per finished chat-originated run (`OrchestratorAgent.summarize_run`, `src/agents/run_summary.py`): a short qualitative narrative over numbers-only excerpts of the validated outputs. Sentences containing digits are dropped; the numbers the user sees come from a deterministic **Results** list built from the tool outputs. LLM failure only removes the narrative.
 - A short streamed acknowledgement when a chat run is queued (the run plan itself is appended deterministically).
 
 Stage execution (`execute_run` and the stage nodes) makes **no** LLM calls; the worker
-constructs `OrchestratorAgent(llm_client=None)`.
+constructs `OrchestratorAgent(llm_client=None)` for execution and an LLM client only for the
+post-run summary.
 
 **LangGraph nodes do NOT run an Agents SDK agent loop.** Each node is a Python function that calls the SDK's `client.chat.completions.create()` directly for any LLM work, then calls deterministic tools, then returns. The Agents SDK is used as an LLM client, not as a routing framework.
 
@@ -241,7 +263,8 @@ The WebSocket handler subscribes to the Redis channel for `run_id` and forwards 
 - `conv:{conversation_id}` (chat-originated runs only) — `stage_update`
   (`running`/`completed`/`failed`), `tool_call` (`message_id` = the assistant message that
   launched the run; `summary` = numbers-only JSON excerpt of the validated output, no paths
-  or prose), and an `error` frame when the run fails.
+  or prose), an `error` frame when the run fails, and finally the run summary as an assistant
+  message (`token` + `done` frames).
 
 Per-tool stdout/stderr forwarding, Nextflow log tailing and CloudWatch polling are not
 implemented yet.

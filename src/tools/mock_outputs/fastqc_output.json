@@ -1,0 +1,15 @@
+{
+  "report_html_paths": [
+    "mock/qc/sample_R1_fastqc.html"
+  ],
+  "report_zip_paths": [
+    "mock/qc/sample_R1_fastqc.zip"
+  ],
+  "summary": {
+    "Basic Statistics": "PASS",
+    "Per base sequence quality": "PASS",
+    "Per sequence GC content": "WARN",
+    "Adapter Content": "PASS"
+  },
+  "tool_version": "FastQC v0.12.1 (mock)"
+}

@@ -1,0 +1,5 @@
+{
+  "output_dir": "mock/visualization",
+  "manifest_path": "mock/visualization/manifest.json",
+  "tool_version": "streamlit_prep 1.0 (mock)"
+}

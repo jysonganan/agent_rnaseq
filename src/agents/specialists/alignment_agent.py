@@ -6,9 +6,9 @@ from typing import Any, NotRequired, TypedDict
 
 from src.agents.specialists._base import BaseSpecialistAgent, _make_stage_output
 from src.db.enums import ArtifactType, StageName
+from src.db.models.run import PipelineStage
 from src.tools.alignment.samtools import SamtoolsInput, run_samtools_sort_index
 from src.tools.alignment.star import STARAlignInput, run_star_align
-from src.tools.base import ToolExecutionError
 
 
 class AlignmentStageInput(TypedDict):
@@ -23,6 +23,8 @@ class AlignmentStageInput(TypedDict):
 
 
 class AlignmentAgent(BaseSpecialistAgent):
+    supports_external_compute = True
+
     def __init__(self, db, llm_client=None, dry_run: bool = False, mock_registry=None):
         super().__init__(
             StageName.alignment,
@@ -33,43 +35,42 @@ class AlignmentAgent(BaseSpecialistAgent):
         )
 
     def run(self, stage_input: AlignmentStageInput) -> dict[str, Any]:  # type: ignore[override]
-        stage = self._start_stage(
-            stage_input["run_id"], StageName.alignment, "star", sample_id=stage_input["sample_id"]
+        return self._run_split(stage_input, self.compute)
+
+    def tool_name(self, stage_input: AlignmentStageInput) -> str:  # type: ignore[override]
+        return "star"
+
+    def compute(self, stage_input: AlignmentStageInput) -> dict[str, Any]:  # type: ignore[override]
+        star_out = run_star_align(
+            STARAlignInput(
+                fastq_r1=stage_input["fastq_r1"],
+                fastq_r2=stage_input.get("fastq_r2"),
+                genome_dir=stage_input["genome_dir"],
+                output_prefix=stage_input["output_prefix"],
+                threads=stage_input.get("threads", 8),
+                alignment_mode=stage_input.get("alignment_mode", "genome"),
+            )
         )
-        try:
-            star_out = run_star_align(
-                STARAlignInput(
-                    fastq_r1=stage_input["fastq_r1"],
-                    fastq_r2=stage_input.get("fastq_r2"),
-                    genome_dir=stage_input["genome_dir"],
-                    output_prefix=stage_input["output_prefix"],
-                    threads=stage_input.get("threads", 8),
-                    alignment_mode=stage_input.get("alignment_mode", "genome"),
-                )
+        samtools_out = run_samtools_sort_index(
+            SamtoolsInput(
+                bam_path=star_out.bam_path,
+                output_prefix=stage_input["output_prefix"] + "_sorted",
             )
+        )
+        return {"star": star_out, "samtools": samtools_out}
 
-            samtools_out = run_samtools_sort_index(
-                SamtoolsInput(
-                    bam_path=star_out.bam_path,
-                    output_prefix=stage_input["output_prefix"] + "_sorted",
-                )
-            )
+    def persist(  # type: ignore[override]
+        self, stage: PipelineStage, stage_input: AlignmentStageInput, outs: dict[str, Any]
+    ) -> dict[str, Any]:
+        star_out, samtools_out = outs["star"], outs["samtools"]
+        run_id = stage_input["run_id"]
+        self._write_artifact(stage.id, run_id, ArtifactType.bam, samtools_out.sorted_bam_path)
+        self._write_artifact(stage.id, run_id, ArtifactType.bai, samtools_out.bai_path)
 
-            self._write_artifact(
-                stage.id, stage_input["run_id"], ArtifactType.bam, samtools_out.sorted_bam_path
-            )
-            self._write_artifact(
-                stage.id, stage_input["run_id"], ArtifactType.bai, samtools_out.bai_path
-            )
-
-            tool_version = star_out.tool_version
-            self._complete_stage(stage, tool_version=tool_version)
-            output = star_out.model_dump()
-            # Downstream stages (quant, variant, splicing, viz) consume the samtools BAM.
-            output["sorted_bam_path"] = samtools_out.sorted_bam_path
-            output["sorted_bai_path"] = samtools_out.bai_path
-            return _make_stage_output("alignment", "completed", output, tool_version)
-
-        except ToolExecutionError as exc:
-            self._fail_stage(stage, str(exc))
-            raise
+        tool_version = star_out.tool_version
+        self._complete_stage(stage, tool_version=tool_version)
+        output = star_out.model_dump()
+        # Downstream stages (quant, variant, splicing, viz) consume the samtools BAM.
+        output["sorted_bam_path"] = samtools_out.sorted_bam_path
+        output["sorted_bai_path"] = samtools_out.bai_path
+        return _make_stage_output("alignment", "completed", output, tool_version)

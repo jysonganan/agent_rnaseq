@@ -18,18 +18,30 @@ FROM python:3.11.9-slim AS python-runtime
 
 WORKDIR /app
 
-# System deps for psycopg2 (PostgreSQL client) and compilation
+# System deps for psycopg2 (PostgreSQL client) and compilation; Java for Nextflow
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     curl \
+    openjdk-17-jre-headless \
     && rm -rf /var/lib/apt/lists/*
+
+# Nextflow launcher (pinned; see docker/tool_versions.txt) for executor = nextflow | aws_batch.
+# The worker only orchestrates: processes run in the tools image (locally via Docker, or on
+# AWS Batch).
+ARG NEXTFLOW_VERSION=23.10.1
+RUN curl -fsSL -o /usr/local/bin/nextflow \
+        "https://github.com/nextflow-io/nextflow/releases/download/v${NEXTFLOW_VERSION}/nextflow-${NEXTFLOW_VERSION}-all" \
+    && chmod +x /usr/local/bin/nextflow
 
 COPY pyproject.toml ./
 # Install only runtime deps (no dev extras)
 RUN pip install --no-cache-dir -e "."
 
 COPY src/ ./src/
+# Nextflow pipeline + tool version pins used by src/tools/nextflow/stage_runner.py
+COPY nextflow/ ./nextflow/
+COPY docker/tool_versions.txt ./docker/tool_versions.txt
 
 # Copy pre-built frontend static files from stage 1
 COPY --from=node-build /build/out /app/frontend/out

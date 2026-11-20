@@ -32,6 +32,7 @@ class RunEvents(Protocol):
     def tool_call(self, tool_name: str, status: str, summary: str | None = None) -> None: ...
     def log(self, level: str, stage: str | None, agent: str | None, message: str) -> None: ...
     def run_error(self, message: str) -> None: ...
+    def assistant_message(self, message_id: str, text: str) -> None: ...
 
 
 class NullRunEvents:
@@ -47,6 +48,9 @@ class NullRunEvents:
         pass
 
     def run_error(self, message: str) -> None:
+        pass
+
+    def assistant_message(self, message_id: str, text: str) -> None:
         pass
 
 
@@ -134,3 +138,8 @@ class RedisRunEvents:
 
     def run_error(self, message: str) -> None:
         self._conv("error", {"message": sanitize_text(message, 500)})
+
+    def assistant_message(self, message_id: str, text: str) -> None:
+        """A complete assistant turn (run summary): one token frame + done frame."""
+        self._conv("token", {"message_id": message_id, "token": text})
+        self._conv("done", {"message_id": message_id, "run_id": self._run_id})

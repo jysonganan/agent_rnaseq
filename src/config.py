@@ -41,11 +41,18 @@ class Settings(BaseSettings):
     # ── Output storage ────────────────────────────────────────────────────────
     output_root: str = "/tmp/agent_rnaseq"
 
+    # ── Nextflow backend (executor = nextflow | aws_batch) ────────────────────
+    nextflow_bin: str = "nextflow"
+    nextflow_tools_image: str = "agent-rnaseq-tools:dev"  # pin an immutable tag in prod
+    nextflow_timeout_seconds: int = 24 * 60 * 60
+
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
 
     # ── CORS ──────────────────────────────────────────────────────────────────
-    cors_allow_origins: str = "http://localhost:3000"  # comma-separated; set to "" in production (same-origin)
+    cors_allow_origins: str = (
+        "http://localhost:3000"  # comma-separated; set to "" in production (same-origin)
+    )
 
     # ── AWS (all optional) ────────────────────────────────────────────────────
     aws_default_region: str = "us-east-1"

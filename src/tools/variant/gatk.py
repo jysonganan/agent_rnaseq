@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import os
 from pathlib import Path
 from typing import Literal
@@ -49,7 +50,8 @@ class GATKVariantFilterOutput(BaseModel):
 def _count_vcf_variants(vcf_path: str) -> dict:  # type: ignore[type-arg]
     """Open a VCF and return parsed variant counts (patchable in tests)."""
     try:
-        with open(vcf_path) as fh:
+        opener = gzip.open if vcf_path.endswith(".gz") else open
+        with opener(vcf_path, "rt") as fh:
             return parse_vcf_variant_counts(fh.read())
     except OSError:
         return {"total_count": 0, "pass_count": 0, "filtered_count": 0}

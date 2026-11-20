@@ -72,6 +72,11 @@ dev = [
 where = ["."]
 include = ["src*"]
 
+[tool.setuptools.package-data]
+"src.tools.report" = ["*.html"]
+"src.tools.mock_outputs" = ["*.json"]
+"src.r" = ["*.R"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

@@ -5,8 +5,6 @@ from __future__ import annotations
 import contextlib
 import logging
 
-from arq import ArqRedis
-
 from src.agents.orchestrator import ChatDispatchInput, OrchestratorAgent
 from src.config import get_settings
 from src.db.session import get_session_factory
@@ -22,7 +20,7 @@ async def process_chat_message(
     api_key_id: str,
 ) -> None:
     """Dequeue and process a user chat message through the orchestrator."""
-    from openai import AsyncOpenAI, OpenAI
+    from openai import OpenAI
 
     from src.db.models.conversation import ChatMessage, Conversation
 

@@ -1,0 +1,5 @@
+{
+  "html_report_path": "mock/report/report.html",
+  "markdown_report_path": "mock/report/report.md",
+  "tool_version": "report_compiler 1.0 (mock)"
+}

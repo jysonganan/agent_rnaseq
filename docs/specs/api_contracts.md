@@ -189,15 +189,22 @@ Create and launch a new analysis run.
 
 `dry_run` (default `false`) runs the same LangGraph pipeline with mock tool outputs — no
 subprocesses and no per-stage DB writes. It can only be set in this request body, never by the
-LLM. `execution.executor` must currently be `local` for agent-driven execution; other values are
-accepted here but the run fails at start with an explanatory `error_message`.
+LLM.
+
+`execution.executor`: `local` (tools run in the worker), `nextflow` (heavy per-sample stages via
+Nextflow on the worker host) or `aws_batch` (heavy stages via Nextflow on AWS Batch; requires
+`s3://` paths for sample FASTQs and the genome FASTA/GTF/STAR index, plus `S3_ARTIFACT_BUCKET`
+and `AWS_BATCH_JOB_QUEUE`). Missing prerequisites fail the run at start with an explanatory
+`error_message`. See `tool_contracts.md` §11b "Executors".
 
 **Execution**: the run is queued (ARQ `run_pipeline`) and executed by
 `OrchestratorAgent.execute_run`, whose LangGraph stage nodes dispatch to the specialist sub-agents
 (see `docs/architecture.md` §3.1). Progress: `GET /runs/{id}` (`status`, per-stage rows),
 `WS /ws/runs/{id}/logs`, and — for chat-originated runs — `stage_update`/`tool_call` frames on the
 conversation stream. On failure `AnalysisRun.error_message` holds a sanitized message (no file
-paths); re-enqueueing a `failed` run resumes after the last completed stage/sample.
+paths); `POST /runs/{id}/retry` resumes a failed or cancelled run after the last completed
+stage/sample. When a chat-originated run finishes (completed or failed), the orchestrator posts a
+summary assistant message to the conversation (see the conversation stream frames below).
 
 **Analysis inputs (user decisions — never inferred by the system)**
 
@@ -296,6 +303,20 @@ Cancel a running or pending run.
 ```json
 { "run_id": "uuid", "status": "cancelled" }
 ```
+
+#### `POST /runs/{run_id}/retry`
+Re-queue a `failed` or `cancelled` run. Execution resumes from the `agent_state` checkpoint:
+completed stages and, within the failed stage, finished samples/contrasts are not re-run.
+`run_config` is unchanged (immutable after start); to change inputs, create a new run.
+
+**Response 202**
+```json
+{ "run_id": "uuid", "status": "pending", "message": "Run re-queued; resuming after: qc, alignment" }
+```
+
+**Response 409** — run is `pending`, `running` or `completed`.
+**Response 404** — unknown run.
+Rate limit: same as `POST /runs`.
 
 ---
 
@@ -715,10 +736,16 @@ chat-originated runs:
 Published when a chat-originated run fails (`Stage failed: <stage>`) or cannot start
 (`Run could not start: <sanitized reason>`).
 
+**Run summary message** — when a chat-originated run completes or fails, the worker writes an
+assistant `ChatMessage` (with `run_id`) and publishes it as one `token` frame followed by a `done`
+frame (`run_id` set). Content: a headline, an optional qualitative LLM narrative (sentences
+containing digits are removed), and a deterministic **Results** list whose numbers are copied
+from validated tool outputs (e.g. ``DE `B_vs_A`: 120 up, 85 down of 15000 genes tested``).
+
 ---
 
 ## Rate Limits
-- `POST /runs`: 10 requests/minute per API key.
+- `POST /runs` and `POST /runs/{id}/retry`: 10 requests/minute per API key.
 - `POST /conversations/{id}/messages`: 10 requests/minute per API key (same cost as POST /runs — triggers LLM call and potentially a full pipeline run).
 - All other endpoints: 120 requests/minute per API key.
 

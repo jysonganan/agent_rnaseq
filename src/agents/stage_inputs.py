@@ -8,8 +8,11 @@ and from upstream stage outputs. No LLM is involved anywhere in this module.
 
 from __future__ import annotations
 
+import json
 import os
+import posixpath
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -76,6 +79,10 @@ class PipelineContext:
     genome: GenomeInfo
     samples: list[SampleInfo]
     output_root: str
+    # executor=aws_batch: heavy (Nextflow) stages publish under this s3:// root
+    remote_output_root: str | None = None
+    # makes a (possibly remote) file readable by worker-side stages; identity when local
+    localize: Callable[[str], str] = field(default=lambda p: p, compare=False)
 
     @property
     def threads(self) -> int:
@@ -92,6 +99,12 @@ class PipelineContext:
         if sample_id:
             parts.append(sample_id)
         return os.path.join(*parts)
+
+    def heavy_stage_dir(self, stage: str, sample_id: str) -> str:
+        """Output dir of a stage that may run on Nextflow/AWS Batch (S3 when remote)."""
+        if self.remote_output_root:
+            return posixpath.join(self.remote_output_root, self.run_id, stage, sample_id)
+        return self.stage_dir(stage, sample_id)
 
 
 def load_pipeline_context(db: Session, run_id: str, output_root: str) -> PipelineContext:
@@ -237,7 +250,7 @@ def _qc(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
         "run_id": ctx.run_id,
         "sample_id": s.id,
         "fastq_paths": [p for p in (s.fastq_r1, s.fastq_r2) if p],
-        "output_dir": ctx.stage_dir("qc", s.id),
+        "output_dir": ctx.heavy_stage_dir("qc", s.id),
         "bam_path": bam_path,
         "bam_index_path": bai_path,
         "bed_annotation_path": ctx.run_config.get("bed_annotation_path"),
@@ -245,14 +258,14 @@ def _qc(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
 
 
 def _alignment(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
-    out_dir = ctx.stage_dir("alignment", s.id)
+    out_dir = ctx.heavy_stage_dir("alignment", s.id)
     return {
         "run_id": ctx.run_id,
         "sample_id": s.id,
         "fastq_r1": s.fastq_r1,
         "fastq_r2": s.fastq_r2,
         "genome_dir": _require(ctx.genome.star_index_path, "Genome STAR index"),
-        "output_prefix": os.path.join(out_dir, s.name + "_"),
+        "output_prefix": posixpath.join(out_dir, s.name + "_"),
         "threads": ctx.threads,
         "alignment_mode": _star_alignment_mode(ctx),
     }
@@ -272,7 +285,7 @@ def _quantification(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
         "run_id": ctx.run_id,
         "sample_id": s.id,
         "quantification_method": method,
-        "output_dir": ctx.stage_dir("quantification", s.id),
+        "output_dir": ctx.heavy_stage_dir("quantification", s.id),
         "bam_path": None,
         "gtf_path": None,
         "fastq_r1": None,
@@ -307,7 +320,7 @@ def _variant(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
         "bam_path": bam,
         "bam_index_path": bai,
         "reference_fasta": ctx.genome.fasta_path,
-        "output_dir": ctx.stage_dir("variant_calling", s.id),
+        "output_dir": ctx.heavy_stage_dir("variant_calling", s.id),
         "dbsnp_path": ctx.run_config.get("dbsnp_path"),
     }
 
@@ -334,9 +347,15 @@ def _splicing(ctx: PipelineContext, outs: dict) -> list[dict]:
     read_length = _read_length(ctx)
     inputs = []
     for contrast in resolve_contrasts(ctx):
-        b1 = [_bam_for(outs, s.id)[0] for s in ctx.samples if s.condition == contrast["numerator"]]
+        b1 = [
+            ctx.localize(_bam_for(outs, s.id)[0])
+            for s in ctx.samples
+            if s.condition == contrast["numerator"]
+        ]
         b2 = [
-            _bam_for(outs, s.id)[0] for s in ctx.samples if s.condition == contrast["denominator"]
+            ctx.localize(_bam_for(outs, s.id)[0])
+            for s in ctx.samples
+            if s.condition == contrast["denominator"]
         ]
         if not b1 or not b2:
             raise StageInputError(f"Contrast {contrast['name']} has an empty sample group")
@@ -371,7 +390,7 @@ def _de(ctx: PipelineContext, outs: dict) -> dict:
         path = _per_sample_output(outs, "quantification", s.id).get(key)
         if not path:
             raise StageInputError(f"No quantification output for sample {s.id}")
-        count_paths[s.id] = path
+        count_paths[s.id] = ctx.localize(path)
 
     out_dir = ctx.stage_dir("differential_expression")
     matrix = build_count_matrix(
@@ -412,22 +431,56 @@ def _gsea(ctx: PipelineContext, outs: dict) -> dict:
     }
 
 
+def _write_qc_metrics(ctx: PipelineContext, outs: dict, path: str) -> str | None:
+    """QC metrics JSON for the dashboard, copied from validated QC/alignment outputs."""
+    if "qc" not in outs and "alignment" not in outs:
+        return None
+    samples = []
+    for s in ctx.samples:
+        fastqc = _per_sample_output(outs, "qc", s.id).get("summary") or {}
+        stats = _per_sample_output(outs, "alignment", s.id).get("alignment_stats") or {}
+        statuses = [str(v).upper() for v in fastqc.values()]
+        row: dict[str, Any] = {"sample": s.name, "condition": s.condition or ""}
+        if "total_reads" in stats:
+            row["total_reads"] = stats["total_reads"]
+        if "uniquely_mapped_pct" in stats:
+            row["mapping_rate"] = stats["uniquely_mapped_pct"]
+        if statuses:
+            row.update(
+                fastqc_pass=statuses.count("PASS"),
+                fastqc_warn=statuses.count("WARN"),
+                fastqc_fail=statuses.count("FAIL"),
+            )
+        samples.append(row)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as fh:
+        json.dump({"samples": samples}, fh, indent=2)
+    return path
+
+
 def _visualization(ctx: PipelineContext, outs: dict) -> dict:
     bam_paths: list[str] = []
     if "alignment" in outs:
-        bam_paths = [_bam_for(outs, s.id)[0] for s in ctx.samples]
+        for s in ctx.samples:
+            bam, bai = _bam_for(outs, s.id)
+            ctx.localize(bai)  # bamCoverage needs the index next to the BAM
+            bam_paths.append(ctx.localize(bam))
+    out_dir = ctx.stage_dir("visualization")
+    fai = ctx.genome.fasta_path + ".fai"
     return {
         "run_id": ctx.run_id,
         "de_results_dir": ctx.stage_dir("differential_expression")
         if "differential_expression" in outs
         else None,
         "gsea_results_dir": ctx.stage_dir("gsea") if "gsea" in outs else None,
-        "qc_metrics_path": ctx.stage_dir("qc") if "qc" in outs else None,
+        "qc_metrics_path": _write_qc_metrics(
+            ctx, outs, os.path.join(out_dir, "inputs", "qc_metrics.json")
+        ),
         "bam_paths": bam_paths,
         "genome_build": ctx.genome.build,
-        "output_dir": ctx.stage_dir("visualization"),
+        "output_dir": out_dir,
         "track_name_prefix": ctx.run_name,
-        "chrom_sizes_path": ctx.genome.fasta_path + ".fai",
+        "chrom_sizes_path": fai if os.path.isfile(fai) else None,
     }
 
 
@@ -445,16 +498,20 @@ def _report(ctx: PipelineContext, outs: dict) -> dict:
     de = _aggregate_output(outs, "differential_expression")
     for name, path in (de.get("results_paths") or {}).items():
         artifact_paths[f"de_{name}"] = path
+    for name, entry in (_aggregate_output(outs, "gsea").get("per_contrast") or {}).items():
+        artifact_paths[f"gsea_{name}"] = entry.get("results_path", "")
     viz = _aggregate_output(outs, "visualization")
     if viz.get("manifest_path"):
         artifact_paths["streamlit_manifest"] = viz["manifest_path"]
+    if viz.get("track_hub_path"):
+        artifact_paths["ucsc_track_hub"] = viz["track_hub_path"]
 
     return {
         "run_id": ctx.run_id,
         "run_name": ctx.run_name,
         "qc_summary": _summary("qc"),
         "de_summary": (de.get("contrast_summaries") or None),
-        "gsea_summary": _summary("gsea"),
+        "gsea_summary": _aggregate_output(outs, "gsea").get("per_contrast") or None,
         "artifact_paths": artifact_paths,
         "output_dir": ctx.stage_dir("report"),
         "template_path": REPORT_TEMPLATE,

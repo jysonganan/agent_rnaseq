@@ -20,7 +20,7 @@ class VizStageInput(TypedDict):
     genome_build: str
     output_dir: str
     track_name_prefix: str
-    chrom_sizes_path: str
+    chrom_sizes_path: str | None
 
 
 class VizAgent(BaseSpecialistAgent):
@@ -47,6 +47,7 @@ class VizAgent(BaseSpecialistAgent):
             )
 
             bigwig_paths: list[str] = []
+            track_hub_path: str | None = None
             if stage_input["bam_paths"]:  # no alignment stage → no genome browser tracks
                 ucsc_out = generate_ucsc_tracks(
                     UCSCTrackInput(
@@ -54,10 +55,11 @@ class VizAgent(BaseSpecialistAgent):
                         genome_build=stage_input["genome_build"],
                         output_dir=stage_input["output_dir"],
                         track_name_prefix=stage_input["track_name_prefix"],
-                        chrom_sizes_path=stage_input["chrom_sizes_path"],
+                        chrom_sizes_path=stage_input.get("chrom_sizes_path"),
                     )
                 )
                 bigwig_paths = ucsc_out.bigwig_paths
+                track_hub_path = ucsc_out.track_hub_path
 
             self._write_artifact(
                 stage.id,
@@ -72,9 +74,10 @@ class VizAgent(BaseSpecialistAgent):
 
             tool_version = streamlit_out.tool_version
             self._complete_stage(stage, tool_version=tool_version)
-            return _make_stage_output(
-                "visualization", "completed", streamlit_out.model_dump(), tool_version
-            )
+            output = streamlit_out.model_dump()
+            output["bigwig_paths"] = bigwig_paths
+            output["track_hub_path"] = track_hub_path
+            return _make_stage_output("visualization", "completed", output, tool_version)
 
         except ToolExecutionError as exc:
             self._fail_stage(stage, str(exc))

@@ -1,0 +1,8 @@
+{
+  "counts_path": "mock/quantification/counts.tsv",
+  "total_reads": 1000000,
+  "counted_reads": 850000,
+  "no_feature_reads": 100000,
+  "ambiguous_reads": 50000,
+  "tool_version": "HTSeq 2.0.5 (mock)"
+}

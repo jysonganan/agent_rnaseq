@@ -162,7 +162,9 @@ The Chat UI is a Next.js 14 (App Router) application that lets you describe your
 4. Agent response tokens stream via WS /ws/conversations/{id}/stream
 5. arq run_pipeline → OrchestratorAgent.execute_run → LangGraph → specialist agents;
    stage_update / tool_call frames stream to the same conversation
-6. On completion: artifacts available for download; Streamlit embed shows results
+6. On completion (or failure) the agent posts a run summary: a short interpretation plus a
+   Results list whose numbers come straight from the validated tool outputs
+7. Artifacts available for download; Streamlit embed shows results
 ```
 
 **Contrasts are your decision.** When you ask for differential expression or splicing without
@@ -206,9 +208,11 @@ Salmon on FASTQs, `rsem` → RSEM on the STAR transcriptome BAM. Per-sample stag
 `alignment`, `quantification`, `variant_calling`, `scrna_seq`) run once per sample; `splicing`
 runs once per contrast; DESeq2 fits all samples and reports every contrast.
 
-> `visualization` (`prepare_streamlit_data`, `generate_ucsc_tracks`) and `report`
-> (`compile_report`) tools are not implemented yet; these stages currently fail with
-> `NotImplementedError` when executed for real.
+`visualization` collects DE / GSEA / QC results into the Streamlit dashboard format
+(`manifest.json`, combined CSVs with a `contrast` column) and, if BAMs exist, builds CPM-normalised
+bigWig coverage tracks (deepTools `bamCoverage`) plus a UCSC track hub. `report` writes
+`report.md` and `report.html` with QC, DE and GSEA summary tables — every number copied from the
+validated tool outputs.
 
 Stage dependency rules:
 - `alignment` → required by `quantification`, `variant_calling`, `splicing`
@@ -293,6 +297,10 @@ AWS_DEFAULT_REGION=us-east-1
 S3_ARTIFACT_BUCKET=my-rnaseq-artifacts
 AWS_BATCH_JOB_QUEUE=arn:aws:batch:us-east-1:...:job-queue/rnaseq
 AWS_BATCH_JOB_DEFINITION=arn:aws:batch:us-east-1:...:job-definition/rnaseq-worker
+
+# Nextflow backend (executor = nextflow | aws_batch)
+NEXTFLOW_BIN=nextflow                                # on the worker's PATH (bundled in the API image)
+NEXTFLOW_TOOLS_IMAGE=<registry>/agent-rnaseq-tools:<immutable-tag>   # never 'latest' in production
 ```
 
 AWS credentials come from environment variables or IAM roles — never hardcoded.
@@ -427,8 +435,12 @@ curl -s -X POST http://localhost:8000/api/v1/runs \
   denominator). Both must be a `condition` of a selected sample; list as many contrasts as you
   need. `name` is optional (default `<numerator>_vs_<denominator>`).
 - `read_length` (bp) is required for `splicing` unless every sample has `metadata.read_length`.
-- `"dry_run": true` runs the graph with mock tool outputs (no tools executed).
-- Agent-driven execution currently supports `"executor": "local"` only.
+- `"dry_run": true` runs the graph with validated mock tool outputs (no tools executed).
+- `execution.executor`: `local` (tools in the worker), `nextflow` (heavy per-sample stages via
+  Nextflow on the worker host), or `aws_batch` (heavy stages via Nextflow on AWS Batch — see
+  below).
+- A failed or cancelled run can be resumed with `POST /runs/{id}/retry`; completed stages and
+  finished samples are not re-run.
 - Missing or inconsistent inputs return `422` with the available conditions listed.
 
 ### 5. Poll status and retrieve results
@@ -487,7 +499,27 @@ curl -s -X POST http://localhost:8000/api/v1/runs \
   }' | jq .
 ```
 
-Nextflow submits each stage as an AWS Batch job. Artifacts are written to `s3://my-rnaseq-bucket/outputs/<run_id>/`. Logs stream to the WebSocket endpoint via CloudWatch → Redis → client.
+How it runs:
+
+- The heavy per-sample stages (`qc`, `alignment`, `quantification`, `variant_calling`) are run by
+  the worker as `nextflow run nextflow/main.nf -profile awsbatch`; Nextflow submits each process
+  as an AWS Batch job using the tools image (`NEXTFLOW_TOOLS_IMAGE`, same pinned tool versions as
+  local runs).
+- Their outputs are published to `s3://$S3_ARTIFACT_BUCKET/runs/<run_id>/<stage>/<sample_id>/`
+  and recorded as `s3://` artifacts; the Nextflow work dir is
+  `s3://$S3_ARTIFACT_BUCKET/nextflow-work/<run_id>`.
+- DESeq2, GSEA, splicing, visualization and report run in the worker. It downloads only the small
+  files it needs (counts, logs, FastQC zips, VCFs) — plus the BAMs if you request `splicing` or
+  genome browser tracks.
+- Required configuration: `S3_ARTIFACT_BUCKET`, `AWS_BATCH_JOB_QUEUE`, `AWS_DEFAULT_REGION`,
+  and `s3://` paths for every sample FASTQ and the genome FASTA, GTF and STAR index. The run is
+  refused at start with a clear `error_message` otherwise.
+- Progress: `stage_update` / run-log WebSocket frames per stage and sample (Nextflow's own process
+  logs stay in `<OUTPUT_ROOT>/<run_id>/nextflow/` on the worker; CloudWatch log streaming is not
+  wired yet).
+
+`"executor": "nextflow"` uses the same pipeline with `-profile local` on the worker host (needs
+Docker available to the worker, since processes run in the tools image).
 
 ---
 
@@ -545,6 +577,7 @@ All endpoints require `Authorization: Bearer <api-key>` (except `/health`). Rate
 | `GET` | `/runs` | List runs (filter by project, status) |
 | `GET` | `/runs/{id}` | Run detail + stage statuses + artifacts |
 | `POST` | `/runs/{id}/cancel` | Cancel a pending/running run |
+| `POST` | `/runs/{id}/retry` | Resume a failed/cancelled run from its checkpoint |
 | `GET` | `/runs/{id}/qc` | QC metrics for all samples |
 | `GET` | `/runs/{id}/de` | DE results (filter by contrast, padj, lfc) |
 | `GET` | `/runs/{id}/gsea` | GSEA pathway enrichment results |
@@ -738,6 +771,8 @@ agent_rnaseq/
 │   │   ├── run_requirements.py  # User-decided inputs (contrasts, read length) checks/questions
 │   │   ├── run_events.py        # Redis progress events (run logs, stage_update, tool_call)
 │   │   ├── sanitize.py          # Path/credential stripping for user-visible text
+│   │   ├── run_summary.py       # Post-run summary: deterministic results + numbers-free LLM narrative
+│   │   ├── artifact_integrity.py # Re-verify upstream artifact checksums before a stage runs
 │   │   ├── state.py             # RunState, StageState
 │   │   └── specialists/         # QC, Alignment, DE, GSEA, scRNA, …
 │   ├── tools/                   # Deterministic tool wrappers (typed in/out)
@@ -745,6 +780,10 @@ agent_rnaseq/
 │   │   ├── alignment/           # STAR, samtools
 │   │   ├── de/                  # DESeq2 subprocess wrapper
 │   │   ├── gsea/                # fgsea/Reactome subprocess wrapper
+│   │   ├── viz/                 # Streamlit data prep, bamCoverage tracks + UCSC hub
+│   │   ├── report/              # Markdown/HTML report (template.html)
+│   │   ├── nextflow/            # Nextflow stage runner (nextflow/aws_batch executors), S3 storage
+│   │   ├── mock_outputs/        # Validated dry-run fixtures (mock_registry.py)
 │   │   └── …
 │   ├── api/
 │   │   ├── app.py               # FastAPI factory (CORS, static mount, all routers)

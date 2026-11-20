@@ -1,0 +1,19 @@
+{
+  "output_dir": "mock/splicing",
+  "event_types": [
+    "SE",
+    "A5SS",
+    "A3SS",
+    "MXE",
+    "RI"
+  ],
+  "significant_events_count": {
+    "SE": 12,
+    "A5SS": 3,
+    "A3SS": 4,
+    "MXE": 1,
+    "RI": 2
+  },
+  "summary_path": "mock/splicing/summary.txt",
+  "tool_version": "rMATS 4.1.2 (mock)"
+}

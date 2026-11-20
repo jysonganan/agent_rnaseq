@@ -1,0 +1,6 @@
+{
+  "results_path": "mock/gsea/treated_vs_control/gsea_results.csv",
+  "enrichment_plots_dir": "mock/gsea/treated_vs_control/plots",
+  "significant_pathway_count": 25,
+  "tool_version": "fgsea 1.28.0 (mock)"
+}

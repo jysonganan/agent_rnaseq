@@ -192,14 +192,16 @@ class OrchestratorAgent:
         stages = [s for s in ALL_PIPELINE_STAGES if s in stages]
 
         ctx = None
+        backend = None
         if not self._dry_run:
             ctx = load_pipeline_context(db, run_id, output_root or get_settings().output_root)
             self._check_user_inputs(ctx, stages)
-            if ctx.executor != Executor.local:
-                raise OrchestratorError(
-                    f"Executor '{ctx.executor}' is not supported by the agent runner yet; "
-                    "use 'local'"
-                )
+            ctx, backend = self._configure_executor(db, ctx, run_id)
+
+        if self._dry_run and mock_registry is None:
+            from src.tools.mock_registry import load_default_registry
+
+            mock_registry = load_default_registry()
 
         runtime = StageRuntime(
             db=db,
@@ -207,6 +209,7 @@ class OrchestratorAgent:
             dry_run=self._dry_run,
             mock_registry=mock_registry,
             llm_client=self._client,
+            backend=backend,
         )
         if events is not None:
             runtime.events = events
@@ -227,6 +230,151 @@ class OrchestratorAgent:
             state, config={"recursion_limit": 2 * len(stages) + 5}
         )
         return result
+
+    def summarize_run(
+        self, db: Session, run_id: str, final_state: dict[str, Any], events: Any = None
+    ) -> str | None:
+        """Post the run summary to the originating conversation (chat runs only).
+
+        Deterministic results (numbers from validated outputs) + an optional qualitative
+        LLM narrative with numeric sentences removed. Returns the assistant message id.
+        """
+        from src.agents.run_summary import narrative, results_markdown
+        from src.db.enums import MessageRole
+        from src.db.models.conversation import ChatMessage
+        from src.db.models.run import AnalysisRun
+
+        run = db.get(AnalysisRun, uuid.UUID(run_id))
+        if run is None or run.conversation_id is None:
+            return None
+
+        failed = final_state.get("failed_stage")
+        headline = (
+            f"Run **{run.name}** stopped: stage `{failed}` failed."
+            if failed
+            else f"Run **{run.name}** completed."
+        )
+        story = ""
+        if self._client is not None:
+            story = narrative(self._client, get_settings().agent_llm_model, final_state)
+        names = {str(a.sample.id): a.sample.name for a in run.sample_associations}
+        text = "\n\n".join(
+            part for part in (headline, story, results_markdown(final_state, names)) if part
+        )
+
+        msg = ChatMessage(
+            conversation_id=run.conversation_id,
+            role=MessageRole.assistant,
+            content=_sanitize_chat_content(text),
+            run_id=run.id,
+        )
+        db.add(msg)
+        db.commit()
+        if events is not None:
+            events.assistant_message(str(msg.id), msg.content)
+        return str(msg.id)
+
+    @staticmethod
+    def _configure_executor(db: Session, ctx: Any, run_id: str) -> tuple[Any, Any]:
+        """Validate the executor and build the Nextflow backend when one is needed.
+
+        ``local``: tools run as subprocesses in the worker (no backend).
+        ``nextflow``: heavy per-sample stages run via ``nextflow -profile local``.
+        ``aws_batch``: heavy stages run via ``nextflow -profile awsbatch``, publishing to
+        ``s3://<S3_ARTIFACT_BUCKET>/runs``; worker-side stages read small files locally.
+        """
+        import dataclasses
+        import os
+        import shutil
+
+        from src.agents.stage_executor import _check_not_cancelled
+        from src.tools.nextflow.stage_runner import NextflowBackendConfig, NextflowStageRunner
+        from src.tools.nextflow.storage import storage_for
+
+        executor = ctx.executor
+        if executor == Executor.local:
+            return ctx, None
+        if executor not in (Executor.nextflow, Executor.aws_batch):
+            raise OrchestratorError(f"Unknown executor '{executor}'")
+
+        settings = get_settings()
+        if shutil.which(settings.nextflow_bin) is None:
+            raise OrchestratorError(
+                f"Executor '{executor}' needs Nextflow, but '{settings.nextflow_bin}' is not on "
+                "PATH of the worker"
+            )
+
+        run_root = os.path.join(ctx.output_root, run_id)
+        execution = dict(ctx.run_config.get("execution") or {})
+        if executor == Executor.aws_batch:
+            missing = [
+                name
+                for name, value in (
+                    ("S3_ARTIFACT_BUCKET", settings.s3_artifact_bucket),
+                    ("AWS_BATCH_JOB_QUEUE", settings.aws_batch_job_queue),
+                )
+                if not value
+            ]
+            if missing:
+                raise OrchestratorError(f"Executor 'aws_batch' requires {', '.join(missing)}")
+            local_inputs = [
+                s.name
+                for s in ctx.samples
+                for p in (s.fastq_r1, s.fastq_r2)
+                if p and not p.startswith("s3://")
+            ]
+            for label, value in (
+                ("genome FASTA", ctx.genome.fasta_path),
+                ("genome GTF", ctx.genome.gtf_path),
+                ("STAR index", ctx.genome.star_index_path),
+            ):
+                if value and not value.startswith("s3://"):
+                    local_inputs.append(label)
+            if local_inputs:
+                raise OrchestratorError(
+                    "Executor 'aws_batch' needs s3:// inputs; local paths found for: "
+                    + ", ".join(sorted(set(local_inputs)))
+                )
+            remote_root = f"s3://{settings.s3_artifact_bucket}/runs"
+            work_dir = f"s3://{settings.s3_artifact_bucket}/nextflow-work/{run_id}"
+            execution.update(
+                aws_batch_queue=settings.aws_batch_job_queue,
+                s3_work_dir=work_dir,
+                aws_region=settings.aws_default_region,
+            )
+            profile = "awsbatch"
+        else:
+            remote_root = None
+            work_dir = os.path.join(run_root, "nextflow", "work")
+            profile = "local"
+
+        storage = storage_for(remote_root or ctx.output_root, os.path.join(run_root, "s3_cache"))
+        if remote_root:
+            ctx = dataclasses.replace(
+                ctx, remote_output_root=remote_root, localize=storage.localize
+            )
+
+        def _cancelled() -> bool:
+            try:
+                _check_not_cancelled(db, run_id)
+            except Exception:
+                return True
+            return False
+
+        backend = NextflowStageRunner(
+            NextflowBackendConfig(
+                profile=profile,
+                launch_dir=os.path.join(run_root, "nextflow"),
+                work_dir=work_dir,
+                tools_image=settings.nextflow_tools_image,
+                execution=execution,
+                nextflow_bin=settings.nextflow_bin,
+                timeout_seconds=settings.nextflow_timeout_seconds,
+            ),
+            storage=storage,
+            should_cancel=_cancelled,
+        )
+        return ctx, backend
 
     @staticmethod
     def _check_user_inputs(ctx: Any, stages: list[str]) -> None:

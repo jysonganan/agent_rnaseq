@@ -163,3 +163,34 @@ def test_create_run_unknown_sample_returns_422(api_client):
     payload["sample_ids"] = [str(uuid.uuid4())]
     resp = api_client.post("/api/v1/runs", json=payload, headers=AUTH_HEADERS)
     assert resp.status_code == 422
+
+
+# ── Retry ─────────────────────────────────────────────────────────────────────
+
+
+def test_retry_pending_run_returns_409(api_client):
+    run_id = api_client.post(
+        "/api/v1/runs", json=_create_run_payload(api_client._seed), headers=AUTH_HEADERS
+    ).json()["run_id"]
+    resp = api_client.post(f"/api/v1/runs/{run_id}/retry", headers=AUTH_HEADERS)
+    assert resp.status_code == 409
+
+
+def test_retry_cancelled_run_requeues(api_client):
+    run_id = api_client.post(
+        "/api/v1/runs", json=_create_run_payload(api_client._seed), headers=AUTH_HEADERS
+    ).json()["run_id"]
+    api_client.post(f"/api/v1/runs/{run_id}/cancel", headers=AUTH_HEADERS)
+    resp = api_client.post(f"/api/v1/runs/{run_id}/retry", headers=AUTH_HEADERS)
+    assert resp.status_code == 202
+    assert resp.json()["status"] == "pending"
+    assert "first stage" in resp.json()["message"]
+    detail = api_client.get(f"/api/v1/runs/{run_id}", headers=AUTH_HEADERS).json()
+    assert detail["status"] == "pending"
+
+
+def test_retry_unknown_run_returns_404(api_client):
+    import uuid
+
+    resp = api_client.post(f"/api/v1/runs/{uuid.uuid4()}/retry", headers=AUTH_HEADERS)
+    assert resp.status_code == 404

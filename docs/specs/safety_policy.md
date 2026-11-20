@@ -94,7 +94,7 @@ Every tool invocation is recorded in `PipelineStage`:
 - `started_at`, `completed_at`
 - `executor`, `batch_job_id`
 
-Audit records must not be deleted or modified after creation. `UPDATE` on `PipelineStage` is only permitted to set terminal status fields (`status`, `completed_at`, `error_message`).
+Audit records must not be deleted or modified after creation. `UPDATE` on `PipelineStage` is only permitted to set the fields that become known when the invocation ends: `status`, `completed_at`, `tool_version`, `output_summary`, `exit_code`. `input_params`, `executor` and `started_at` are written at insert and never changed.
 
 ---
 
@@ -102,6 +102,7 @@ Audit records must not be deleted or modified after creation. `UPDATE` on `Pipel
 
 - Tool versions must be recorded at invocation time (`tool_version` field in `PipelineStage`).
 - Docker images pin tool versions; floating tags (`latest`) are not permitted in production.
+- Nextflow processes run in the same tools image (`NEXTFLOW_TOOLS_IMAGE`, an immutable tag in production), so `nextflow`/`aws_batch` runs use exactly the tool versions of `local` runs.
 - `run_config` JSON snapshot is stored with every `AnalysisRun` and is immutable after run start.
 - Random seeds for stochastic tools (e.g., UMAP) must be set and recorded.
 
@@ -120,7 +121,7 @@ Audit records must not be deleted or modified after creation. `UPDATE` on `Pipel
 ## Rule 10 — Output File Integrity
 
 - MD5 checksums are computed and stored for all artifact files.
-- Before any downstream tool consumes an artifact, its checksum is re-verified.
+- Before any downstream tool consumes an artifact, its checksum is re-verified (local artifacts; `src/agents/artifact_integrity.py`). Artifacts published to S3 by `aws_batch` runs are not hashed by the worker; S3 object integrity is relied on instead.
 - S3 uploads use server-side encryption (SSE-S3 minimum).
 - Output directories are run-scoped: `{output_root}/{run_id}/{stage_name}/`.
 

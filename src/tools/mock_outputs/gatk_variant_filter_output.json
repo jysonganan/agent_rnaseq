@@ -1,0 +1,7 @@
+{
+  "filtered_vcf_path": "mock/variant_calling/filtered.vcf.gz",
+  "filtered_vcf_index_path": "mock/variant_calling/filtered.vcf.gz.tbi",
+  "pass_variant_count": 1200,
+  "filtered_variant_count": 150,
+  "tool_version": "GATK 4.5.0.0 (mock)"
+}
