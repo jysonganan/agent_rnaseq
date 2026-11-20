@@ -107,11 +107,7 @@ def get_conversation(
     api_key: APIKey = Depends(require_api_key),
 ) -> ConversationDetailRead:
     conv = _get_owned_conversation(conversation_id, api_key, db)
-    count = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.conversation_id == conv.id)
-        .count()
-    )
+    count = db.query(ChatMessage).filter(ChatMessage.conversation_id == conv.id).count()
     return ConversationDetailRead(
         **ConversationRead.model_validate(conv).model_dump(),
         message_count=count,

@@ -1,6 +1,7 @@
 """ORM model imports — importing this package registers all models with Base.metadata."""
 
 from src.db.models.auth import APIKey
+from src.db.models.conversation import ChatMessage, Conversation
 from src.db.models.genome import ReferenceGenome
 from src.db.models.project import Project, RunSample, Sample
 from src.db.models.results import (
@@ -12,7 +13,6 @@ from src.db.models.results import (
     VariantCall,
 )
 from src.db.models.run import AnalysisRun, Artifact, PipelineStage
-from src.db.models.conversation import ChatMessage, Conversation
 
 __all__ = [
     "APIKey",

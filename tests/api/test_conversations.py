@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -23,7 +22,9 @@ def _create_conv(client: TestClient, auth: dict, title: str | None = None) -> di
 # ── POST /conversations ────────────────────────────────────────────────────────
 
 
-def test_create_conversation_default_title(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_create_conversation_default_title(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     data = _create_conv(client, auth_headers)
     assert data["title"] == "New conversation"
     assert "id" in data
@@ -31,7 +32,9 @@ def test_create_conversation_default_title(client: TestClient, auth_headers: dic
     assert "updated_at" in data
 
 
-def test_create_conversation_custom_title(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_create_conversation_custom_title(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     data = _create_conv(client, auth_headers, title="My RNA experiment")
     assert data["title"] == "My RNA experiment"
 
@@ -44,7 +47,9 @@ def test_create_conversation_requires_auth(client: TestClient, seed_data: dict) 
 # ── GET /conversations ─────────────────────────────────────────────────────────
 
 
-def test_list_conversations_scoped_to_api_key(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_list_conversations_scoped_to_api_key(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     _create_conv(client, auth_headers, title="Conv A")
     _create_conv(client, auth_headers, title="Conv B")
     r = client.get("/api/v1/conversations", headers=auth_headers)
@@ -55,7 +60,9 @@ def test_list_conversations_scoped_to_api_key(client: TestClient, auth_headers: 
     assert titles == {"Conv A", "Conv B"}
 
 
-def test_list_conversations_excludes_deleted(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_list_conversations_excludes_deleted(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers, title="To delete")
     client.delete(f"/api/v1/conversations/{conv['id']}", headers=auth_headers)
     r = client.get("/api/v1/conversations", headers=auth_headers)
@@ -65,14 +72,6 @@ def test_list_conversations_excludes_deleted(client: TestClient, auth_headers: d
 
 def test_list_conversations_other_key_not_visible(client: TestClient, seed_data: dict) -> None:
     """A conversation created with one key must not appear for a different key."""
-    from sqlalchemy.orm import Session
-    from sqlalchemy import create_engine
-    from sqlalchemy.pool import StaticPool
-
-    from src.api.app import create_app
-    from src.db.base import Base
-    from src.db.models.auth import APIKey
-    from src.db.session import get_db
 
     auth1 = {"Authorization": f"Bearer {TEST_API_KEY_RAW}"}
     _create_conv(client, auth1, title="Owner conv")
@@ -87,7 +86,9 @@ def test_list_conversations_other_key_not_visible(client: TestClient, seed_data:
 # ── DELETE /conversations/{id} ─────────────────────────────────────────────────
 
 
-def test_delete_conversation_soft_deletes(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_delete_conversation_soft_deletes(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers)
     r = client.delete(f"/api/v1/conversations/{conv['id']}", headers=auth_headers)
     assert r.status_code == 204
@@ -96,15 +97,22 @@ def test_delete_conversation_soft_deletes(client: TestClient, auth_headers: dict
     assert r2.json()["total"] == 0
 
 
-def test_delete_conversation_not_found(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_delete_conversation_not_found(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     import uuid
+
     r = client.delete(f"/api/v1/conversations/{uuid.uuid4()}", headers=auth_headers)
     assert r.status_code == 404
 
 
-def test_delete_conversation_unauthorized(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_delete_conversation_unauthorized(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers)
-    r = client.delete(f"/api/v1/conversations/{conv['id']}", headers={"Authorization": "Bearer wrong"})
+    r = client.delete(
+        f"/api/v1/conversations/{conv['id']}", headers={"Authorization": "Bearer wrong"}
+    )
     assert r.status_code == 401
 
 
@@ -134,7 +142,9 @@ def test_send_message_accepted(client: TestClient, auth_headers: dict, seed_data
     assert data["status"] == "processing"
 
 
-def test_send_message_updates_title_on_first_message(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_send_message_updates_title_on_first_message(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers)
     assert conv["title"] == "New conversation"
     client.post(
@@ -167,7 +177,9 @@ def test_send_message_title_not_overwritten_on_second_message(
     assert r.json()["title"] == "My experiment"
 
 
-def test_send_message_rejects_blank(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_send_message_rejects_blank(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers)
     r = client.post(
         f"/api/v1/conversations/{conv['id']}/messages",
@@ -177,7 +189,9 @@ def test_send_message_rejects_blank(client: TestClient, auth_headers: dict, seed
     assert r.status_code == 422
 
 
-def test_send_message_rejects_over_4000_chars(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_send_message_rejects_over_4000_chars(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers)
     r = client.post(
         f"/api/v1/conversations/{conv['id']}/messages",
@@ -187,7 +201,9 @@ def test_send_message_rejects_over_4000_chars(client: TestClient, auth_headers: 
     assert r.status_code == 422
 
 
-def test_send_message_exactly_4000_chars(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_send_message_exactly_4000_chars(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers)
     r = client.post(
         f"/api/v1/conversations/{conv['id']}/messages",
@@ -197,8 +213,11 @@ def test_send_message_exactly_4000_chars(client: TestClient, auth_headers: dict,
     assert r.status_code == 202
 
 
-def test_send_message_404_for_missing_conv(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_send_message_404_for_missing_conv(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     import uuid
+
     r = client.post(
         f"/api/v1/conversations/{uuid.uuid4()}/messages",
         json={"content": "hello"},
@@ -233,7 +252,9 @@ def test_get_messages_empty(client: TestClient, auth_headers: dict, seed_data: d
     assert r.json()["total"] == 0
 
 
-def test_get_messages_includes_user_message(client: TestClient, auth_headers: dict, seed_data: dict) -> None:
+def test_get_messages_includes_user_message(
+    client: TestClient, auth_headers: dict, seed_data: dict
+) -> None:
     conv = _create_conv(client, auth_headers)
     client.post(
         f"/api/v1/conversations/{conv['id']}/messages",
@@ -270,13 +291,14 @@ def test_rate_limit_send_message(client: TestClient, auth_headers: dict, seed_da
 def test_ws_rejects_missing_api_key(client: TestClient, seed_data: dict) -> None:
     """WS closes with 4403 before accept when api_key param is absent."""
     import uuid
+
     from starlette.websockets import WebSocketDisconnect
 
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(
-            f"/api/v1/ws/conversations/{uuid.uuid4()}/stream"
-        ):
-            pass
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(f"/api/v1/ws/conversations/{uuid.uuid4()}/stream"),
+    ):
+        pass
 
 
 def test_ws_rejects_invalid_api_key(client: TestClient, db_engine, seed_data: dict) -> None:
@@ -289,12 +311,12 @@ def test_ws_rejects_invalid_api_key(client: TestClient, db_engine, seed_data: di
 
     test_session_factory = sessionmaker(bind=db_engine)
 
-    with _patch(
-        "src.api.websocket.conversation_stream.get_session_factory",
-        return_value=test_session_factory,
+    with (
+        _patch(
+            "src.api.websocket.conversation_stream.get_session_factory",
+            return_value=test_session_factory,
+        ),
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(f"/api/v1/ws/conversations/{uuid.uuid4()}/stream?api_key=bad-key"),
     ):
-        with pytest.raises(WebSocketDisconnect):
-            with client.websocket_connect(
-                f"/api/v1/ws/conversations/{uuid.uuid4()}/stream?api_key=bad-key"
-            ):
-                pass
+        pass

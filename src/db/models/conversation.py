@@ -20,25 +20,21 @@ def _utcnow() -> datetime:
 class Conversation(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "conversations"
 
-    title: Mapped[str] = mapped_column(
-        String(256), nullable=False, default="New conversation"
-    )
+    title: Mapped[str] = mapped_column(String(256), nullable=False, default="New conversation")
     created_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("api_keys.id"), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    messages: Mapped[list["ChatMessage"]] = relationship(
+    messages: Mapped[list[ChatMessage]] = relationship(
         "ChatMessage",
         back_populates="conversation",
         order_by="ChatMessage.created_at",
     )
-    api_key: Mapped["APIKey"] = relationship("APIKey")  # type: ignore[name-defined]  # noqa: F821
+    api_key: Mapped[APIKey] = relationship("APIKey")  # type: ignore[name-defined]  # noqa: F821
 
 
 class ChatMessage(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
@@ -59,6 +55,4 @@ class ChatMessage(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
         SAEnum(ToolStatus, native_enum=False), nullable=True
     )
 
-    conversation: Mapped[Conversation] = relationship(
-        "Conversation", back_populates="messages"
-    )
+    conversation: Mapped[Conversation] = relationship("Conversation", back_populates="messages")
