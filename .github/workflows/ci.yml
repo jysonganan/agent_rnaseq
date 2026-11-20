@@ -91,9 +91,10 @@ jobs:
 
       - name: Install Nextflow 23.10.1 (pinned, docker/tool_versions.txt)
         run: |
-          curl -fsSL -o nextflow \
+          # download outside the checkout: ./nextflow is the pipeline directory
+          curl -fsSL -o "$RUNNER_TEMP/nextflow" \
             https://github.com/nextflow-io/nextflow/releases/download/v23.10.1/nextflow-23.10.1-all
-          chmod +x nextflow && sudo mv nextflow /usr/local/bin/
+          chmod +x "$RUNNER_TEMP/nextflow" && sudo mv "$RUNNER_TEMP/nextflow" /usr/local/bin/nextflow
           nextflow -version
 
       - name: Install dependencies
