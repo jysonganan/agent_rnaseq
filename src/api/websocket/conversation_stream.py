@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import uuid
 
 from fastapi import APIRouter, Query, WebSocket
 
+from src.api.auth import active_api_key
 from src.db.session import get_session_factory
 
 ws_conv_router = APIRouter()
-
-
-def _sha256(raw: str) -> str:
-    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 @ws_conv_router.websocket("/ws/conversations/{conversation_id}/stream")
@@ -28,14 +24,12 @@ async def ws_conversation_stream(
         await websocket.close(code=4403)
         return
 
-    from src.db.models.auth import APIKey
     from src.db.models.conversation import Conversation
 
     db = get_session_factory()()
     try:
-        key_hash = _sha256(api_key)
-        key_obj = db.query(APIKey).filter(APIKey.key_hash == key_hash).first()
-        if key_obj is None or not key_obj.is_active:
+        key_obj = active_api_key(db, api_key)
+        if key_obj is None:
             await websocket.close(code=4403)
             return
 

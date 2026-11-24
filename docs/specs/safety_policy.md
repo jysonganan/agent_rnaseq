@@ -159,8 +159,8 @@ Rationale: hallucinated UUIDs would either fail at FK constraint (DB error, not 
 - No `allow-top-navigation` or `allow-popups-to-escape-sandbox` on any iframe.
 
 ### 11.5 WebSocket Authentication
-- The conversation stream WebSocket sends the API key as `?api_key=<key>` query parameter; this is the only acceptable exception to URL-param transmission and is restricted to WSS (TLS) in production.
-- The FastAPI WebSocket handler must validate the key against the `APIKey` table before subscribing to the Redis channel, identical to REST auth.
+- Both WebSockets (conversation stream and run log stream) send the API key as `?api_key=<key>` query parameter; this is the only acceptable exception to URL-param transmission and is restricted to WSS (TLS) in production.
+- Every FastAPI WebSocket handler must validate the key against the `APIKey` table before accepting the connection or subscribing to the Redis channel, identical to REST auth (shared helper `src/api/auth.py::active_api_key`), and must check that the requested conversation or run belongs to that key. Rejections close with `4403` (bad key) or `4404` (not found / not owned).
 
 ### 11.6 No Credential Exposure in Agent Responses
 - Agent response content written to `ChatMessage.content` must not contain: file system paths, AWS credentials, internal IP addresses, or raw tool stderr.

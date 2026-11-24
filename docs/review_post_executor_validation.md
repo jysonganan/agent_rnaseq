@@ -36,7 +36,7 @@ The overall design matches the plan:
 
 | # | Finding | Where | Why it matters |
 |---|---|---|---|
-| 1 | **The run-log WebSocket checks no API key.** The conversation stream checks one; the run-log stream ignores the key the frontend sends. | `src/api/ws/logs.py` | Anyone who can reach the API can stream any run's logs. |
+| 1 | ✅ **Fixed (2026-11-23).** **The run-log WebSocket checks no API key.** The conversation stream checks one; the run-log stream ignores the key the frontend sends. Now the key and run ownership are checked before the socket is accepted (close `4403` / `4404`). | `src/api/ws/logs.py` | Anyone who can reach the API can stream any run's logs. |
 | 2 | **API keys are sent in the WebSocket URL** (`?api_key=…`). | `frontend/src/hooks/useRunLogStream.ts`, `useConversationStream.ts` | Breaks the `CLAUDE.md` frontend rule ("never in URL params"), and keys end up in proxy and access logs. |
 | 3 | **Every API key can see every run and project.** `created_by` is recorded but lists and reads aren't filtered by it. | `src/api/routers/*` | Fine for one user, wrong for several. |
 | 4 | **RSeQC never runs.** QC always runs before alignment, so the QC step never has a BAM file to check. | `src/agents/stage_inputs.py::_qc` | Post-alignment checks (strandedness, gene-body coverage) are missing from every run. |

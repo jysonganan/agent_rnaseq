@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
+from starlette.websockets import WebSocketDisconnect
 
 from src.db.enums import Aligner, AlignmentMode, PipelineType, RunStatus, StageName, StageStatus
+from src.db.models.auth import APIKey
 from src.db.models.run import AnalysisRun, PipelineStage
+from tests.api.conftest import TEST_API_KEY_RAW
 
 
 class TestCreateRun:
@@ -120,16 +128,107 @@ class TestGetRun:
 
 
 class TestWebSocket:
-    def test_receives_initial_message(self, client: TestClient) -> None:
-        run_id = str(uuid.uuid4())
-        with client.websocket_connect(f"/api/v1/ws/runs/{run_id}/logs") as ws:
-            msg = ws.receive_json()
-            assert "message" in msg
-            assert run_id in msg["message"]
-            assert "ts" in msg
+    """Run log stream: API key + run ownership are checked before the socket is accepted."""
 
-    def test_initial_message_has_level_info(self, client: TestClient) -> None:
-        run_id = str(uuid.uuid4())
-        with client.websocket_connect(f"/api/v1/ws/runs/{run_id}/logs") as ws:
+    @pytest.fixture
+    def ws_db(self, db_engine) -> Iterator[sessionmaker]:
+        factory = sessionmaker(bind=db_engine)
+        with patch("src.api.ws.logs.get_session_factory", return_value=factory):
+            yield factory
+
+    @staticmethod
+    def _add_run(factory: sessionmaker, seed_data: dict, created_by: uuid.UUID) -> str:
+        with factory() as session:
+            run = AnalysisRun(
+                project_id=seed_data["project_id"],
+                genome_id=seed_data["genome_id"],
+                created_by=created_by,
+                name="ws-run",
+                status=RunStatus.running,
+                pipeline_type=PipelineType.bulk_rnaseq,
+                alignment_mode=AlignmentMode.genome,
+                aligner=Aligner.star,
+                run_config={},
+            )
+            session.add(run)
+            session.commit()
+            return str(run.id)
+
+    @staticmethod
+    def _add_key(factory: sessionmaker, raw: str, *, revoked: bool = False) -> uuid.UUID:
+        with factory() as session:
+            key = APIKey(
+                key_hash=hashlib.sha256(raw.encode()).hexdigest(),
+                name=raw,
+                created_by="test-admin",
+                revoked_at=datetime.now(UTC) if revoked else None,
+            )
+            session.add(key)
+            session.commit()
+            return key.id
+
+    @staticmethod
+    def _close_code(client: TestClient, url: str) -> int:
+        with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(url):
+            pass
+        return exc.value.code
+
+    def test_owner_receives_initial_message(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
+        url = f"/api/v1/ws/runs/{run_id}/logs?api_key={TEST_API_KEY_RAW}"
+        with client.websocket_connect(url) as ws:
             msg = ws.receive_json()
-            assert msg["level"] == "info"
+        assert run_id in msg["message"]
+        assert msg["level"] == "info"
+        assert "ts" in msg
+
+    def test_missing_api_key_rejected(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
+        assert self._close_code(client, f"/api/v1/ws/runs/{run_id}/logs") == 4403
+
+    def test_unknown_api_key_rejected(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
+        url = f"/api/v1/ws/runs/{run_id}/logs?api_key=not-a-real-key"
+        assert self._close_code(client, url) == 4403
+
+    def test_revoked_api_key_rejected(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        key_id = self._add_key(ws_db, "revoked-key", revoked=True)
+        run_id = self._add_run(ws_db, seed_data, key_id)
+        url = f"/api/v1/ws/runs/{run_id}/logs?api_key=revoked-key"
+        assert self._close_code(client, url) == 4403
+
+    def test_run_of_another_key_rejected(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        other = self._add_key(ws_db, "other-users-key")
+        run_id = self._add_run(ws_db, seed_data, other)
+        url = f"/api/v1/ws/runs/{run_id}/logs?api_key={TEST_API_KEY_RAW}"
+        assert self._close_code(client, url) == 4404
+
+    def test_unknown_run_rejected_like_foreign_run(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        url = f"/api/v1/ws/runs/{uuid.uuid4()}/logs?api_key={TEST_API_KEY_RAW}"
+        assert self._close_code(client, url) == 4404
+
+    def test_malformed_run_id_rejected(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        url = f"/api/v1/ws/runs/not-a-uuid/logs?api_key={TEST_API_KEY_RAW}"
+        assert self._close_code(client, url) == 4404
+
+    def test_rejected_before_redis_subscribe(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
+        with patch("redis.asyncio.from_url") as from_url:
+            self._close_code(client, f"/api/v1/ws/runs/{run_id}/logs?api_key=bad")
+        from_url.assert_not_called()

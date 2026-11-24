@@ -540,7 +540,12 @@ Revoke an API key immediately.
 #### `WS /ws/runs/{run_id}/logs`
 Streams agent log messages in real time.
 
-**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). The handler validates the key against the `APIKey` table and verifies the run belongs to that key before subscribing to the Redis channel.
+**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). Before accepting the connection, the handler validates the key against the `APIKey` table (same check as REST: unknown, expired or revoked keys are rejected) and verifies the run was created by that key (`AnalysisRun.created_by`). Nothing is sent and no Redis channel is subscribed until both checks pass.
+
+| Close code | Meaning |
+|---|---|
+| `4403` | `api_key` missing, unknown, expired or revoked |
+| `4404` | Run id malformed, unknown, or created by a different key (indistinguishable, so run ids are not revealed) |
 
 **Message format**
 ```json

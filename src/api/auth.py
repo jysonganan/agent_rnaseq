@@ -19,15 +19,27 @@ def _sha256(raw: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def active_api_key(db: Session, raw_key: str | None) -> APIKey | None:
+    """Return the active ``APIKey`` matching *raw_key*, or ``None`` (missing/unknown/expired/revoked).
+
+    Shared by REST (``require_api_key``) and the WebSocket handlers so both authenticate identically.
+    """
+    if not raw_key:
+        return None
+    api_key = db.query(APIKey).filter(APIKey.key_hash == _sha256(raw_key)).first()
+    if api_key is None or not api_key.is_active:
+        return None
+    return api_key
+
+
 def require_api_key(
     credentials: HTTPAuthorizationCredentials | None = Security(_bearer),
     db: Session = Depends(get_db),
 ) -> APIKey:
     if credentials is None:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
-    key_hash = _sha256(credentials.credentials)
-    api_key = db.query(APIKey).filter(APIKey.key_hash == key_hash).first()
-    if api_key is None or not api_key.is_active:
+    api_key = active_api_key(db, credentials.credentials)
+    if api_key is None:
         raise HTTPException(status_code=401, detail="Invalid or expired API key")
     return api_key
 
