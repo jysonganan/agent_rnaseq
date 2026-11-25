@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -22,6 +23,7 @@ from src.db.session import get_db
 
 TEST_API_KEY_RAW = "test-integration-api-key-abc123def456"
 TEST_API_KEY_HASH = hashlib.sha256(TEST_API_KEY_RAW.encode()).hexdigest()
+TEST_BOOTSTRAP_KEY = os.environ["API_KEY_BOOTSTRAP"]
 
 
 @pytest.fixture
@@ -43,6 +45,7 @@ def seed_data(db_engine) -> dict:
             key_hash=TEST_API_KEY_HASH,
             name="test-key",
             created_by="test-admin",
+            principal="test-user",
         )
         genome = ReferenceGenome(
             name="hg38",
@@ -110,6 +113,12 @@ def mock_arq() -> None:  # type: ignore[misc]
 @pytest.fixture
 def auth_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {TEST_API_KEY_RAW}"}
+
+
+@pytest.fixture
+def admin_headers() -> dict[str, str]:
+    """The bootstrap admin key (API_KEY_BOOTSTRAP, set in tests/conftest.py)."""
+    return {"Authorization": f"Bearer {TEST_BOOTSTRAP_KEY}"}
 
 
 @pytest.fixture

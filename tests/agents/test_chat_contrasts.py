@@ -29,7 +29,7 @@ def world():  # type: ignore[no-untyped-def]
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
-        key = APIKey(key_hash=uuid.uuid4().hex, name="k", created_by="t")
+        key = APIKey(key_hash=uuid.uuid4().hex, name="k", created_by="t", principal="t")
         project = Project(name="p", owner="t")
         genome = ReferenceGenome(
             name="GRCh38", species="Homo sapiens", build="hg38", fasta_path="/f", gtf_path="/g"
@@ -183,3 +183,69 @@ async def test_read_length_must_come_from_user(world) -> None:  # type: ignore[n
     ).dispatch_from_chat(_say(world, "150 bp"), world.db)
     assert out.run_id
     assert world.db.get(AnalysisRun, uuid.UUID(out.run_id)).run_config["read_length"] == 150
+
+
+# ── Data isolation (safety Rule 12) ────────────────────────────────────────────
+
+
+def _foreign_sample(w) -> Sample:  # type: ignore[no-untyped-def]
+    other = Project(name="someone else's", owner="team_b")
+    w.db.add(other)
+    w.db.flush()
+    sample = Sample(
+        project_id=other.id,
+        name="FOREIGN_SAMPLE",
+        sample_type=SampleType.bulk_rnaseq,
+        condition="ctrl",
+        fastq_r1_path="/d/foreign.fq",
+        is_paired_end=False,
+    )
+    w.db.add(sample)
+    w.db.commit()
+    return sample
+
+
+async def test_foreign_samples_not_offered_to_llm(world) -> None:  # type: ignore[no-untyped-def]
+    foreign = _foreign_sample(world)
+    llm = _llm({"type": "clarification", "question": "Which samples?"})
+    await OrchestratorAgent(llm).dispatch_from_chat(_say(world, "hi"), world.db, AsyncMock())
+
+    system_prompt = llm.chat.completions.create.call_args_list[0].kwargs["messages"][0]["content"]
+    assert "S0" in system_prompt
+    assert "FOREIGN_SAMPLE" not in system_prompt
+    assert str(foreign.id) not in system_prompt
+
+
+async def test_foreign_sample_id_from_llm_is_rejected(world) -> None:  # type: ignore[no-untyped-def]
+    from src.tools.base import ToolValidationError
+
+    foreign = _foreign_sample(world)
+    intent = _intent(world, ["qc"], [])
+    intent["sample_ids"].append(str(foreign.id))
+    with pytest.raises(ToolValidationError, match="not in the database"):
+        await OrchestratorAgent(_llm(intent)).dispatch_from_chat(
+            _say(world, "QC on all samples"), world.db, AsyncMock()
+        )
+    assert world.db.query(AnalysisRun).count() == 0
+
+
+async def test_samples_from_two_projects_ask_which_project(world) -> None:  # type: ignore[no-untyped-def]
+    second = Project(name="p2", owner="t")  # same principal, different project
+    world.db.add(second)
+    world.db.flush()
+    s2 = Sample(
+        project_id=second.id,
+        name="P2S",
+        sample_type=SampleType.bulk_rnaseq,
+        fastq_r1_path="/d/p2.fq",
+        is_paired_end=False,
+    )
+    world.db.add(s2)
+    world.db.commit()
+    intent = _intent(world, ["qc"], [])
+    intent["sample_ids"].append(str(s2.id))
+    out = await OrchestratorAgent(_llm(intent)).dispatch_from_chat(
+        _say(world, "QC on everything"), world.db, AsyncMock()
+    )
+    assert out.needs_clarification and out.run_id is None
+    assert "different projects" in out.clarification_prompt

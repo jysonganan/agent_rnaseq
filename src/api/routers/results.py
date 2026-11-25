@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from src.api.auth import require_api_key
+from src.api.ownership import owned_run
 from src.api.schemas import (
     DEResultOut,
     DEResultsOut,
@@ -34,11 +35,8 @@ from src.db.session import get_db
 router = APIRouter(tags=["results"])
 
 
-def _require_run(run_id: uuid.UUID, db: Session) -> AnalysisRun:
-    run = db.get(AnalysisRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id!s} not found")
-    return run
+def _require_run(run_id: uuid.UUID, db: Session, api_key: APIKey) -> AnalysisRun:
+    return owned_run(db, api_key, run_id)
 
 
 def _stage_ids(run_id: uuid.UUID, db: Session) -> list[uuid.UUID]:
@@ -49,9 +47,9 @@ def _stage_ids(run_id: uuid.UUID, db: Session) -> list[uuid.UUID]:
 def get_qc(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> QCMetricsOut:
-    _require_run(run_id, db)
+    _require_run(run_id, db, api_key)
     sids = _stage_ids(run_id, db)
     if not sids:
         return QCMetricsOut(items=[], total=0)
@@ -66,9 +64,9 @@ def get_de(
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> DEResultsOut:
-    _require_run(run_id, db)
+    _require_run(run_id, db, api_key)
     q = db.query(DEGResult).filter(DEGResult.run_id == run_id)
     if contrast:
         q = q.filter(DEGResult.contrast == contrast)
@@ -89,9 +87,9 @@ def get_gsea(
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> GSEAResultsOut:
-    _require_run(run_id, db)
+    _require_run(run_id, db, api_key)
     q = db.query(GSEAResult).filter(GSEAResult.run_id == run_id)
     if contrast:
         q = q.filter(GSEAResult.contrast == contrast)
@@ -112,9 +110,9 @@ def get_splicing(
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> SplicingResultsOut:
-    _require_run(run_id, db)
+    _require_run(run_id, db, api_key)
     q = db.query(SplicingResult).filter(SplicingResult.run_id == run_id)
     if contrast:
         q = q.filter(SplicingResult.contrast == contrast)
@@ -134,9 +132,9 @@ def get_variants(
     limit: int = Query(default=50, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> VariantListOut:
-    _require_run(run_id, db)
+    _require_run(run_id, db, api_key)
     sids = _stage_ids(run_id, db)
     if not sids:
         return VariantListOut(items=[], total=0, limit=limit, offset=offset)

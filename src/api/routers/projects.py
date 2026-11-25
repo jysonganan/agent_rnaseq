@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from src.api.auth import require_api_key
+from src.api.ownership import owned_project, projects_query
 from src.api.schemas import CreateProjectIn, ProjectListOut, ProjectOut
 from src.db.models.auth import APIKey
 from src.db.models.project import Project
@@ -21,10 +22,11 @@ def list_projects(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> ProjectListOut:
-    total = db.query(Project).count()
-    items = db.query(Project).offset(offset).limit(limit).all()
+    base = projects_query(db, api_key).order_by(Project.created_at)
+    total = base.count()
+    items = base.offset(offset).limit(limit).all()
     return ProjectListOut(
         items=[ProjectOut.model_validate(p) for p in items],
         total=total,
@@ -37,9 +39,13 @@ def list_projects(
 def create_project(
     body: CreateProjectIn,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> ProjectOut:
-    project = Project(**body.model_dump())
+    if body.owner is not None and body.owner != api_key.principal:
+        raise HTTPException(
+            status_code=403, detail="owner must be the principal of the calling API key"
+        )
+    project = Project(name=body.name, description=body.description, owner=api_key.principal)
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -50,9 +56,6 @@ def create_project(
 def get_project(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> ProjectOut:
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!s} not found")
-    return ProjectOut.model_validate(project)
+    return ProjectOut.model_validate(owned_project(db, api_key, project_id))

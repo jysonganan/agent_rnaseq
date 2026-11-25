@@ -120,7 +120,7 @@ def register_run(db: Session, cfg: E2EConfig, truth: dict[str, Any]) -> str:
         for s in samples:
             s["r1"], s["r2"] = mapping[s["r1"]], mapping[s["r2"]]
 
-    key = APIKey(key_hash=uuid.uuid4().hex, name="e2e", created_by="e2e")
+    key = APIKey(key_hash=uuid.uuid4().hex, name="e2e", created_by="e2e", principal="e2e")
     project = Project(name="e2e", owner="e2e")
     genome = ReferenceGenome(
         name=f"e2e-{uuid.uuid4().hex[:8]}",

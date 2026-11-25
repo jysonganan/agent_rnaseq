@@ -86,7 +86,7 @@ def _seed_run(
     conditions: tuple[str, ...] = ("control", "control", "treated", "treated"),
     de_contrasts: list[dict] | None = None,
 ) -> str:
-    key = APIKey(key_hash=uuid.uuid4().hex, name="k", created_by="test")
+    key = APIKey(key_hash=uuid.uuid4().hex, name="k", created_by="test", principal="test")
     project = Project(name="p", owner="test")
     genome = ReferenceGenome(
         name="GRCh38",

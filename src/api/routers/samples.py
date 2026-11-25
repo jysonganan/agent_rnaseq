@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from src.api.auth import require_api_key
+from src.api.ownership import owned_project, owned_sample
 from src.api.schemas import CreateSampleIn, SampleListOut, SampleOut
 from src.db.models.auth import APIKey
-from src.db.models.project import Project, Sample
+from src.db.models.project import Sample
 from src.db.session import get_db
 
 router = APIRouter(tags=["samples"])
@@ -20,11 +21,9 @@ router = APIRouter(tags=["samples"])
 def list_samples(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> SampleListOut:
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!s} not found")
+    owned_project(db, api_key, project_id)
     items = db.query(Sample).filter(Sample.project_id == project_id).all()
     return SampleListOut(items=[SampleOut.model_validate(s) for s in items], total=len(items))
 
@@ -34,11 +33,9 @@ def create_sample(
     project_id: uuid.UUID,
     body: CreateSampleIn,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> SampleOut:
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail=f"Project {project_id!s} not found")
+    owned_project(db, api_key, project_id)
     sample = Sample(project_id=project_id, **body.model_dump())
     db.add(sample)
     db.commit()
@@ -50,9 +47,6 @@ def create_sample(
 def get_sample(
     sample_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> SampleOut:
-    sample = db.get(Sample, sample_id)
-    if sample is None:
-        raise HTTPException(status_code=404, detail=f"Sample {sample_id!s} not found")
-    return SampleOut.model_validate(sample)
+    return SampleOut.model_validate(owned_sample(db, api_key, sample_id))

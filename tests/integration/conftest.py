@@ -82,6 +82,7 @@ def api_seed(api_engine) -> dict:
             key_hash=TEST_API_KEY_HASH,
             name="int-test-key",
             created_by="test-admin",
+            principal="test-user",
         )
         genome = ReferenceGenome(
             name="GRCh38_int_test",

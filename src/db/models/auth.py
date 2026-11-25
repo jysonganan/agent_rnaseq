@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, CreatedAtMixin, UUIDPrimaryKeyMixin
@@ -12,6 +12,9 @@ class APIKey(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Data ownership is per principal (user/team), not per key — see api_contracts.md.
+    principal: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from src.agents.run_requirements import check_analysis_inputs, format_issues, sample_facts
 from src.api.auth import require_api_key
+from src.api.ownership import owned_project, owned_run, runs_query
 from src.api.rate_limit import limiter
 from src.api.schemas import (
     CancelRunOut,
@@ -47,7 +48,13 @@ async def create_run(
     db: Session = Depends(get_db),
     api_key: APIKey = Depends(require_api_key),
 ) -> RunCreatedOut:
-    samples = db.query(Sample).filter(Sample.id.in_(body.sample_ids)).all()
+    owned_project(db, api_key, body.project_id)
+    # Only samples of the (owned) run project count — others are reported as unknown.
+    samples = (
+        db.query(Sample)
+        .filter(Sample.id.in_(body.sample_ids), Sample.project_id == body.project_id)
+        .all()
+    )
     missing = {str(i) for i in body.sample_ids} - {str(s.id) for s in samples}
     if missing:
         raise HTTPException(status_code=422, detail=f"Unknown sample_ids: {sorted(missing)}")
@@ -89,9 +96,9 @@ async def create_run(
 @router.get("", response_model=RunListOut)
 def list_runs(
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> RunListOut:
-    items = db.query(AnalysisRun).all()
+    items = runs_query(db, api_key).order_by(AnalysisRun.created_at).all()
     return RunListOut(items=[RunOut.model_validate(r) for r in items], total=len(items))
 
 
@@ -99,11 +106,9 @@ def list_runs(
 def get_run(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> RunDetailOut:
-    run = db.get(AnalysisRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id!s} not found")
+    run = owned_run(db, api_key, run_id)
     stages = [StageOut.model_validate(s) for s in run.stages]
     return RunDetailOut(**RunOut.model_validate(run).model_dump(), stages=stages)
 
@@ -112,11 +117,9 @@ def get_run(
 def cancel_run(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> CancelRunOut:
-    run = db.get(AnalysisRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id!s} not found")
+    run = owned_run(db, api_key, run_id)
     if run.status not in (RunStatus.pending, RunStatus.running):
         raise HTTPException(status_code=409, detail=f"Cannot cancel run in status {run.status}")
     run.status = RunStatus.cancelled
@@ -130,11 +133,9 @@ async def retry_run(
     request: Request,
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> RunCreatedOut:
-    run = db.get(AnalysisRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id!s} not found")
+    run = owned_run(db, api_key, run_id)
     if run.status not in (RunStatus.failed, RunStatus.cancelled):
         raise HTTPException(status_code=409, detail=f"Cannot retry run in status {run.status}")
     run.status = RunStatus.pending

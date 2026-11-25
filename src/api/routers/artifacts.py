@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from src.api.auth import require_api_key
+from src.api.ownership import owned_run
 from src.api.schemas import ArtifactListOut, ArtifactOut, DownloadUrlOut
 from src.db.models.auth import APIKey
-from src.db.models.run import AnalysisRun, Artifact
+from src.db.models.run import Artifact
 from src.db.session import get_db
 
 router = APIRouter(tags=["artifacts"])
@@ -20,11 +21,9 @@ router = APIRouter(tags=["artifacts"])
 def list_artifacts(
     run_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> ArtifactListOut:
-    run = db.get(AnalysisRun, run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail=f"Run {run_id!s} not found")
+    owned_run(db, api_key, run_id)
     items = db.query(Artifact).filter(Artifact.run_id == run_id).all()
     return ArtifactListOut(items=[ArtifactOut.model_validate(a) for a in items], total=len(items))
 
@@ -34,8 +33,9 @@ def download_artifact(
     run_id: uuid.UUID,
     artifact_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    api_key: APIKey = Depends(require_api_key),
 ) -> DownloadUrlOut:
+    owned_run(db, api_key, run_id)
     artifact = db.get(Artifact, artifact_id)
     if artifact is None or artifact.run_id != run_id:
         raise HTTPException(status_code=404, detail=f"Artifact {artifact_id!s} not found")

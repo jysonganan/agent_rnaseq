@@ -41,6 +41,7 @@ def make_api_key(db: Session, name: str = "test-key") -> APIKey:
         key_hash="a" * 64,
         name=name,
         created_by="admin",
+        principal="user1",
     )
     db.add(key)
     db.flush()

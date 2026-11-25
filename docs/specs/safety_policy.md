@@ -160,11 +160,26 @@ Rationale: hallucinated UUIDs would either fail at FK constraint (DB error, not 
 
 ### 11.5 WebSocket Authentication
 - Both WebSockets (conversation stream and run log stream) send the API key as `?api_key=<key>` query parameter; this is the only acceptable exception to URL-param transmission and is restricted to WSS (TLS) in production.
-- Every FastAPI WebSocket handler must validate the key against the `APIKey` table before accepting the connection or subscribing to the Redis channel, identical to REST auth (shared helper `src/api/auth.py::active_api_key`), and must check that the requested conversation or run belongs to that key. Rejections close with `4403` (bad key) or `4404` (not found / not owned).
+- Every FastAPI WebSocket handler must validate the key against the `APIKey` table before accepting the connection or subscribing to the Redis channel, identical to REST auth (shared helper `src/api/auth.py::active_api_key`), and must check that the requested conversation or run belongs to that key's principal. Rejections close with `4403` (bad key) or `4404` (not found / not owned).
 
 ### 11.6 No Credential Exposure in Agent Responses
 - Agent response content written to `ChatMessage.content` must not contain: file system paths, AWS credentials, internal IP addresses, or raw tool stderr.
 - The Orchestrator strips these before writing to DB (Rule 9 truncation applies to stderr passed to LLM; same sanitization applies to chat content).
+
+---
+
+## Rule 12 — Data Isolation Between Principals
+
+- Every API key belongs to a principal (`APIKey.principal`). Projects, samples, runs (and their
+  stages, results, artifacts and log streams) and conversations are visible only to keys of the
+  owning principal; see `api_contracts.md` "Principals and ownership". Reference genomes are shared.
+- Ownership is enforced in queries (`src/api/ownership.py`), never by filtering responses after
+  the fact. Another principal's resource returns 404, identical to a missing resource.
+- The chat orchestrator only offers the LLM, and only accepts, samples from the requesting
+  principal's projects; one run uses samples of one project.
+- API-key management (`/api-keys`) requires an admin key (`APIKey.is_admin`). Admin keys get no
+  extra data access. The bootstrap key is honoured only while it equals `API_KEY_BOOTSTRAP`
+  (≥ 16 characters, not the example placeholder).
 
 ---
 

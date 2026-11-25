@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from src.db.enums import (
     Aligner,
@@ -78,7 +78,8 @@ class ProjectOut(BaseModel):
 class CreateProjectIn(BaseModel):
     name: str = Field(..., max_length=128)
     description: str | None = None
-    owner: str = Field(..., max_length=64)
+    # Set by the server to the caller's principal; accepted only if it matches (backward compat).
+    owner: str | None = Field(default=None, max_length=64)
 
 
 class ProjectListOut(BaseModel):
@@ -335,13 +336,26 @@ class VariantListOut(BaseModel):
 
 
 class CreateAPIKeyIn(BaseModel):
-    name: str = Field(..., max_length=128)
+    name: str = Field(..., min_length=1, max_length=128)
+    principal: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$"
+    )  # default: the issuing key's principal
+    is_admin: bool = False
     expires_at: datetime | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_reserved(cls, v: str) -> str:
+        if v == "bootstrap":
+            raise ValueError("'bootstrap' is reserved for the bootstrap admin key")
+        return v
 
 
 class APIKeyOut(BaseModel):
     id: uuid.UUID
     name: str
+    principal: str
+    is_admin: bool
     created_by: str
     created_at: datetime
     expires_at: datetime | None

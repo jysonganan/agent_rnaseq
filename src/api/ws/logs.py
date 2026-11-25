@@ -15,15 +15,16 @@ ws_router = APIRouter()
 
 # Close codes (sent before accept, so nothing is streamed to an unauthorized client).
 WS_CLOSE_UNAUTHORIZED = 4403  # missing, unknown, expired or revoked API key
-WS_CLOSE_NOT_FOUND = 4404  # malformed run id, unknown run, or a run owned by another key
+WS_CLOSE_NOT_FOUND = 4404  # malformed run id, unknown run, or a run of another principal
 
 
 def _authorize(api_key: str, run_id: str) -> int | None:
     """Return a close code if the caller may not stream *run_id*'s logs, else ``None``.
 
-    Unknown runs and runs created by another key get the same code, so the endpoint does not
+    Unknown runs and runs of another principal get the same code, so the endpoint does not
     reveal which run ids exist.
     """
+    from src.api.ownership import runs_query
     from src.db.models.run import AnalysisRun
 
     db = get_session_factory()()
@@ -35,11 +36,7 @@ def _authorize(api_key: str, run_id: str) -> int | None:
             run_uuid = uuid.UUID(run_id)
         except ValueError:
             return WS_CLOSE_NOT_FOUND
-        owned = (
-            db.query(AnalysisRun.id)
-            .filter(AnalysisRun.id == run_uuid, AnalysisRun.created_by == key.id)
-            .first()
-        )
+        owned = runs_query(db, key).filter(AnalysisRun.id == run_uuid).first()
         return None if owned is not None else WS_CLOSE_NOT_FOUND
     finally:
         db.close()

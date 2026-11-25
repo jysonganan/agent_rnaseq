@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Query, WebSocket
 
 from src.api.auth import active_api_key
+from src.api.ownership import conversations_query
 from src.db.session import get_session_factory
 
 ws_conv_router = APIRouter()
@@ -40,12 +41,8 @@ async def ws_conversation_stream(
             return
 
         conv = (
-            db.query(Conversation)
-            .filter(
-                Conversation.id == conv_uuid,
-                Conversation.created_by == key_obj.id,
-                Conversation.deleted_at.is_(None),
-            )
+            conversations_query(db, key_obj)
+            .filter(Conversation.id == conv_uuid, Conversation.deleted_at.is_(None))
             .first()
         )
         if conv is None:

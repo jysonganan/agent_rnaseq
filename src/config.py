@@ -22,6 +22,9 @@ class Settings(BaseSettings):
 
     # ── API auth ──────────────────────────────────────────────────────────────
     api_key_bootstrap: str = Field(..., description="Bootstrap admin API key")
+    bootstrap_principal: str = Field(
+        default="admin", description="Principal of the bootstrap admin key"
+    )
 
     # ── LLM ──────────────────────────────────────────────────────────────────
     openai_api_key: str = Field(..., description="OpenAI API key for Agents SDK")

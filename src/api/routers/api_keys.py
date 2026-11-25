@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from src.api.auth import generate_api_key, require_api_key
+from src.api.auth import generate_api_key, require_admin
 from src.api.schemas import APIKeyCreateOut, APIKeyListOut, APIKeyOut, CreateAPIKeyIn
 from src.db.models.auth import APIKey
 from src.db.session import get_db
@@ -20,13 +20,15 @@ router = APIRouter(prefix="/api-keys", tags=["api-keys"])
 def create_api_key(
     body: CreateAPIKeyIn,
     db: Session = Depends(get_db),
-    issuer: APIKey = Depends(require_api_key),
+    issuer: APIKey = Depends(require_admin),
 ) -> APIKeyCreateOut:
     raw, key_hash = generate_api_key()
     api_key = APIKey(
         key_hash=key_hash,
         name=body.name,
         created_by=issuer.name,
+        principal=body.principal or issuer.principal,
+        is_admin=body.is_admin,
         expires_at=body.expires_at,
     )
     db.add(api_key)
@@ -39,9 +41,9 @@ def create_api_key(
 @router.get("", response_model=APIKeyListOut)
 def list_api_keys(
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    _: APIKey = Depends(require_admin),
 ) -> APIKeyListOut:
-    items = db.query(APIKey).all()
+    items = db.query(APIKey).filter(APIKey.revoked_at.is_(None)).all()
     return APIKeyListOut(items=[APIKeyOut.model_validate(k) for k in items], total=len(items))
 
 
@@ -49,7 +51,7 @@ def list_api_keys(
 def revoke_api_key(
     key_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: APIKey = Depends(require_api_key),
+    _: APIKey = Depends(require_admin),
 ) -> None:
     api_key = db.get(APIKey, key_id)
     if api_key is None:

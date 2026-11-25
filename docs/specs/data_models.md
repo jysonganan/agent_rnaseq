@@ -34,7 +34,7 @@ Logical grouping of related analysis runs.
 | `id` | UUID | PK | |
 | `name` | VARCHAR(128) | NOT NULL | |
 | `description` | TEXT | | |
-| `owner` | VARCHAR(64) | NOT NULL | User/team identifier |
+| `owner` | VARCHAR(64) | NOT NULL | Owning principal (`APIKey.principal` of the creating key); set by the server. Samples and runs of the project belong to this principal. |
 | `created_at` | TIMESTAMP | NOT NULL | |
 | `updated_at` | TIMESTAMP | NOT NULL | |
 
@@ -277,10 +277,16 @@ API key credentials for authentication.
 | `id` | UUID | PK | |
 | `key_hash` | VARCHAR(64) | UNIQUE, NOT NULL | SHA-256 of the raw key; raw key never stored |
 | `name` | VARCHAR(128) | NOT NULL | Human label for the key |
-| `created_by` | VARCHAR(64) | NOT NULL | Admin user who issued the key |
+| `created_by` | VARCHAR(64) | NOT NULL | `name` of the admin key that issued this key (`bootstrap` for the bootstrap key) |
+| `principal` | VARCHAR(64) | NOT NULL, INDEX | User/team the key acts for. Data ownership is per principal (see `api_contracts.md` "Principals and ownership"), so several keys of one principal share data and key rotation keeps access. |
+| `is_admin` | BOOLEAN | NOT NULL, default false | May create, list and revoke API keys. Grants no access to other principals' data. |
 | `created_at` | TIMESTAMP | NOT NULL | |
 | `expires_at` | TIMESTAMP | | Null = no expiry |
 | `revoked_at` | TIMESTAMP | | Non-null = revoked |
+
+Migration `0002_api_key_principal`: adds `principal` (backfilled `'default'`) and `is_admin`
+(backfilled `false`). After upgrading an existing database, set `principal` on existing keys and
+`Project.owner` on existing projects so they match.
 
 ---
 

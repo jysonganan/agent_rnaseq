@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from src.api.auth import require_api_key
+from src.api.ownership import conversations_query
 from src.api.rate_limit import limiter
 from src.db.enums import MessageRole
 from src.db.models.auth import APIKey
@@ -80,11 +81,8 @@ def list_conversations(
     api_key: APIKey = Depends(require_api_key),
 ) -> ConversationsListRead:
     base = (
-        db.query(Conversation)
-        .filter(
-            Conversation.created_by == api_key.id,
-            Conversation.deleted_at.is_(None),
-        )
+        conversations_query(db, api_key)
+        .filter(Conversation.deleted_at.is_(None))
         .order_by(Conversation.updated_at.desc())
     )
     total = base.count()
@@ -212,12 +210,8 @@ def _get_owned_conversation(
     conversation_id: uuid.UUID, api_key: APIKey, db: Session
 ) -> Conversation:
     conv = (
-        db.query(Conversation)
-        .filter(
-            Conversation.id == conversation_id,
-            Conversation.created_by == api_key.id,
-            Conversation.deleted_at.is_(None),
-        )
+        conversations_query(db, api_key)
+        .filter(Conversation.id == conversation_id, Conversation.deleted_at.is_(None))
         .first()
     )
     if conv is None:

@@ -480,16 +480,26 @@ class OrchestratorAgent:
             sample_facts,
         )
         from src.db.enums import Aligner, AlignmentMode, MessageRole, RunStatus
+        from src.db.models.auth import APIKey
         from src.db.models.conversation import ChatMessage
         from src.db.models.genome import ReferenceGenome
-        from src.db.models.project import RunSample, Sample
+        from src.db.models.project import Project, RunSample, Sample
         from src.db.models.run import AnalysisRun
         from src.tools.base import ToolValidationError
 
         settings = get_settings()
 
-        # 1. Query available resources before calling LLM (anti-hallucination)
-        samples = db.query(Sample).all()
+        # 1. Query available resources before calling LLM (anti-hallucination). Only samples of
+        #    the requesting principal's projects are offered or accepted (safety Rule 12).
+        key = db.get(APIKey, uuid.UUID(input.api_key_id))
+        samples = (
+            db.query(Sample)
+            .join(Project, Sample.project_id == Project.id)
+            .filter(Project.owner == key.principal)
+            .all()
+            if key is not None
+            else []
+        )
         genomes = db.query(ReferenceGenome).all()
         sample_list = [
             {
@@ -578,6 +588,11 @@ class OrchestratorAgent:
             else:
                 if not selected:
                     question = "Which samples should I include in this run?"
+                elif len({s.project_id for s in selected}) > 1:
+                    question = (
+                        "The selected samples belong to different projects, and a run uses "
+                        "samples from one project. Which project's samples should I include?"
+                    )
                 else:
                     issues = contrast_issues + check_analysis_inputs(
                         [s.value for s in candidate.stages],

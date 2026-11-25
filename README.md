@@ -317,11 +317,11 @@ docker compose -f docker/docker-compose.yml up -d
 # Services: api (8000), frontend-dev (3000), streamlit (8501),
 #           db (PostgreSQL), redis, arq-worker
 
-# 2. Create an API key
+# 2. Create an API key (API_KEY_BOOTSTRAP is the admin key; ≥ 16 chars, not the example value)
 curl -s -X POST http://localhost:8000/api/v1/api-keys \
   -H "Authorization: Bearer <API_KEY_BOOTSTRAP>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-key"}' | jq .key
+  -d '{"name": "my-key", "principal": "my_team"}' | jq -r .raw_key
 
 # 3. Open the Chat UI
 open http://localhost:3000/app
@@ -358,10 +358,16 @@ If you prefer to drive the pipeline programmatically, all functionality is avail
 curl -s -X POST http://localhost:8000/api/v1/api-keys \
   -H "Authorization: Bearer <bootstrap-key>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-key"}' | jq .
+  -d '{"name": "my-key", "principal": "team_a"}' | jq .
 ```
 
-Save the `key` field — it is shown only once.
+Save the `raw_key` field — it is shown only once.
+
+**Access model.** Each key belongs to a *principal* (a user or team). Projects, samples, runs,
+results and conversations are visible only to keys of the principal that owns them, so several
+keys of one principal (or a rotated key) share the same data; reference genomes are shared by
+everyone. Only admin keys (`"is_admin": true`, e.g. the bootstrap key) can create, list or revoke
+API keys. See `docs/specs/api_contracts.md` "Principals and ownership".
 
 ### 2. Register a reference genome
 
@@ -387,7 +393,7 @@ curl -s -X POST http://localhost:8000/api/v1/genomes \
 PROJECT_ID=$(curl -s -X POST http://localhost:8000/api/v1/projects \
   -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "treatment_vs_control", "owner": "team_a"}' | jq -r .id)
+  -d '{"name": "treatment_vs_control"}' | jq -r .id)   # owner = your key's principal
 
 curl -s -X POST http://localhost:8000/api/v1/projects/$PROJECT_ID/samples \
   -H "Authorization: Bearer <api-key>" \

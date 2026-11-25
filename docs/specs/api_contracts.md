@@ -18,6 +18,34 @@ All endpoints (except `/health`) require:
 Authorization: Bearer <api_key>
 ```
 
+Missing, unknown, expired or revoked keys get **401**.
+
+### Principals and ownership
+
+Every API key belongs to a **principal** (`APIKey.principal`: a user or team identifier). Data is
+owned by principals, not by individual keys, so rotating a key keeps access to everything the
+principal owns:
+
+| Resource | Owner |
+|---|---|
+| Project | `Project.owner` = principal of the key that created it (set by the server) |
+| Sample | its project's owner |
+| AnalysisRun (+ stages, results, artifacts, log stream) | its project's owner |
+| Conversation (+ messages, stream) | principal of the key that created it (`Conversation.created_by`) |
+| ReferenceGenome | shared by all principals |
+
+A request for a resource owned by another principal gets **404** — the same response as for a
+resource that does not exist, so IDs of other principals' data are not revealed. Lists only
+contain the caller's own resources. Admin keys (`APIKey.is_admin`) may additionally manage API
+keys; they get no access to other principals' data.
+
+### Bootstrap admin key
+
+`API_KEY_BOOTSTRAP` (≥ 16 characters, not the `.env.example` placeholder) is accepted as an admin
+key. On first use the server stores it as an `APIKey` row (`name = "bootstrap"`, `principal =
+BOOTSTRAP_PRINCIPAL`, default `admin`, `is_admin = true`). Changing `API_KEY_BOOTSTRAP` disables
+the previous value. Use it to issue the first real keys, then keep it secret or rotate it.
+
 ---
 
 ## Error Schema
@@ -109,15 +137,20 @@ Register a new reference genome.
 }
 ```
 
+Only the caller's principal's projects are listed.
+
 #### `GET /projects/{project_id}`
 **Response 200** — full project object with `id`, `name`, `description`, `owner`, `created_at`, `updated_at`.
-**Response 404** — RFC 9457 error if project not found.
+**Response 404** — RFC 9457 error if the project does not exist or is owned by another principal.
 
 #### `POST /projects`
 **Request body**
 ```json
-{ "name": "My RNA-seq Experiment", "description": "Optional", "owner": "team_a" }
+{ "name": "My RNA-seq Experiment", "description": "Optional" }
 ```
+`owner` is set by the server to the caller's principal. It may still be sent for backward
+compatibility, but must equal the caller's principal (otherwise **403**).
+
 **Response 201** — returns created project.
 
 ---
@@ -217,6 +250,15 @@ summary assistant message to the conversation (see the conversation stream frame
 Splicing (rMATS) runs once per contrast: group 1 = numerator samples, group 2 = denominator samples.
 DESeq2 fits `~ condition` over all selected samples and extracts each contrast; the design must have
 more samples than distinct conditions (i.e. at least one replicate somewhere).
+
+Ownership: `project_id` must be a project of the caller's principal (otherwise **404**), and
+every `sample_ids` entry must be a sample of that project (otherwise **422** `Unknown
+sample_ids`, which also covers samples of other principals). `genome_id` may be any registered
+genome (genomes are shared).
+
+`GET /runs` lists only the caller's principal's runs. `GET /runs/{id}`, `POST /runs/{id}/cancel`,
+`POST /runs/{id}/retry`, the result endpoints (`/runs/{id}/qc|de|gsea|splicing|variants`) and the
+artifact endpoints return **404** for runs of other principals.
 
 **Response 202**
 ```json
@@ -494,44 +536,47 @@ Get variant calls for a run.
 
 ### API Key Management
 
+All three endpoints are **admin-only**: the caller's key must have `is_admin = true` (e.g. the
+bootstrap key). Non-admin keys get **403**.
+
 #### `POST /api-keys`
-Issue a new API key. Admin-only endpoint (requires a bootstrap key or admin scope).
+Issue a new API key.
 
 **Request body**
 ```json
-{ "name": "ci-pipeline-key", "expires_at": "2027-01-01T00:00:00Z" }
+{ "name": "ci-pipeline-key", "principal": "team_a", "is_admin": false, "expires_at": "2027-01-01T00:00:00Z" }
 ```
+`principal` (optional, `^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$`) defaults to the issuing key's
+principal. `is_admin` defaults to `false`. `expires_at` is optional.
 
 **Response 201**
 ```json
 {
   "id": "uuid",
   "name": "ci-pipeline-key",
-  "key": "<raw-key-shown-once>",
-  "expires_at": "2027-01-01T00:00:00Z"
+  "principal": "team_a",
+  "is_admin": false,
+  "created_by": "bootstrap",
+  "created_at": "...",
+  "expires_at": "2027-01-01T00:00:00Z",
+  "revoked_at": null,
+  "is_active": true,
+  "raw_key": "<raw-key-shown-once>"
 }
 ```
-The raw key is returned only at creation time and never again.
+The raw key is returned only at creation time and never again. `created_by` is the issuing
+key's `name`.
 
 #### `GET /api-keys`
-List all active (non-revoked) API keys. Returns metadata only — never the raw key or hash.
+List all non-revoked API keys (every principal). Returns metadata only — never the raw key or hash.
 
 **Response 200**
 ```json
-{
-  "keys": [
-    { "id": "uuid", "name": "ci-pipeline-key", "created_at": "...", "expires_at": "..." }
-  ]
-}
+{ "items": [ { "id": "uuid", "name": "ci-pipeline-key", "principal": "team_a", "is_admin": false, "...": "..." } ], "total": 1 }
 ```
 
 #### `DELETE /api-keys/{key_id}`
-Revoke an API key immediately.
-
-**Response 200**
-```json
-{ "id": "uuid", "revoked_at": "2026-06-10T12:00:00Z" }
-```
+Revoke an API key immediately. **204** on success, **404** unknown key, **409** already revoked.
 
 ---
 
@@ -540,12 +585,12 @@ Revoke an API key immediately.
 #### `WS /ws/runs/{run_id}/logs`
 Streams agent log messages in real time.
 
-**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). Before accepting the connection, the handler validates the key against the `APIKey` table (same check as REST: unknown, expired or revoked keys are rejected) and verifies the run was created by that key (`AnalysisRun.created_by`). Nothing is sent and no Redis channel is subscribed until both checks pass.
+**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). Before accepting the connection, the handler validates the key against the `APIKey` table (same check as REST: unknown, expired or revoked keys are rejected) and verifies the run belongs to that key's principal (its project's `owner`). Nothing is sent and no Redis channel is subscribed until both checks pass.
 
 | Close code | Meaning |
 |---|---|
 | `4403` | `api_key` missing, unknown, expired or revoked |
-| `4404` | Run id malformed, unknown, or created by a different key (indistinguishable, so run ids are not revealed) |
+| `4404` | Run id malformed, unknown, or owned by another principal (indistinguishable, so run ids are not revealed) |
 
 **Message format**
 ```json
@@ -687,7 +732,7 @@ The endpoint:
 #### `WS /ws/conversations/{conversation_id}/stream`
 Streams agent response tokens and pipeline events for a conversation.
 
-**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers).
+**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). The key is validated before accepting; the conversation must belong to the key's principal. Close `4403` = bad key, `4404` = conversation unknown, deleted or owned by another principal.
 
 **Frame types**
 

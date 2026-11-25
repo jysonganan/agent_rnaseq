@@ -15,6 +15,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from src.db.enums import Aligner, AlignmentMode, PipelineType, RunStatus, StageName, StageStatus
 from src.db.models.auth import APIKey
+from src.db.models.project import Project
 from src.db.models.run import AnalysisRun, PipelineStage
 from tests.api.conftest import TEST_API_KEY_RAW
 
@@ -137,10 +138,22 @@ class TestWebSocket:
             yield factory
 
     @staticmethod
-    def _add_run(factory: sessionmaker, seed_data: dict, created_by: uuid.UUID) -> str:
+    def _add_run(
+        factory: sessionmaker,
+        seed_data: dict,
+        created_by: uuid.UUID,
+        project_owner: str | None = None,
+    ) -> str:
+        """Add a run; in the seeded (test-user) project unless *project_owner* is given."""
         with factory() as session:
+            project_id = seed_data["project_id"]
+            if project_owner is not None:
+                project = Project(name=f"{project_owner} project", owner=project_owner)
+                session.add(project)
+                session.flush()
+                project_id = project.id
             run = AnalysisRun(
-                project_id=seed_data["project_id"],
+                project_id=project_id,
                 genome_id=seed_data["genome_id"],
                 created_by=created_by,
                 name="ws-run",
@@ -155,12 +168,15 @@ class TestWebSocket:
             return str(run.id)
 
     @staticmethod
-    def _add_key(factory: sessionmaker, raw: str, *, revoked: bool = False) -> uuid.UUID:
+    def _add_key(
+        factory: sessionmaker, raw: str, principal: str = "test-user", *, revoked: bool = False
+    ) -> uuid.UUID:
         with factory() as session:
             key = APIKey(
                 key_hash=hashlib.sha256(raw.encode()).hexdigest(),
                 name=raw,
                 created_by="test-admin",
+                principal=principal,
                 revoked_at=datetime.now(UTC) if revoked else None,
             )
             session.add(key)
@@ -205,13 +221,22 @@ class TestWebSocket:
         url = f"/api/v1/ws/runs/{run_id}/logs?api_key=revoked-key"
         assert self._close_code(client, url) == 4403
 
-    def test_run_of_another_key_rejected(
+    def test_run_of_another_principal_rejected(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
-        other = self._add_key(ws_db, "other-users-key")
-        run_id = self._add_run(ws_db, seed_data, other)
+        other = self._add_key(ws_db, "other-users-key", "team_b")
+        run_id = self._add_run(ws_db, seed_data, other, project_owner="team_b")
         url = f"/api/v1/ws/runs/{run_id}/logs?api_key={TEST_API_KEY_RAW}"
         assert self._close_code(client, url) == 4404
+
+    def test_run_of_another_key_same_principal_allowed(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker
+    ) -> None:
+        rotated = self._add_key(ws_db, "rotated-key-of-test-user")
+        run_id = self._add_run(ws_db, seed_data, rotated)
+        url = f"/api/v1/ws/runs/{run_id}/logs?api_key={TEST_API_KEY_RAW}"
+        with client.websocket_connect(url) as ws:
+            assert run_id in ws.receive_json()["message"]
 
     def test_unknown_run_rejected_like_foreign_run(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
