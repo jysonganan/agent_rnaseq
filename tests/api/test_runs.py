@@ -17,7 +17,7 @@ from src.db.enums import Aligner, AlignmentMode, PipelineType, RunStatus, StageN
 from src.db.models.auth import APIKey
 from src.db.models.project import Project
 from src.db.models.run import AnalysisRun, PipelineStage
-from tests.api.conftest import TEST_API_KEY_RAW
+from tests.api.conftest import TEST_API_KEY_RAW, auth_frame, ws_close_code
 
 
 class TestCreateRun:
@@ -184,76 +184,104 @@ class TestWebSocket:
             return key.id
 
     @staticmethod
-    def _close_code(client: TestClient, url: str) -> int:
-        with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(url):
-            pass
-        return exc.value.code
+    def _url(run_id: str) -> str:
+        return f"/api/v1/ws/runs/{run_id}/logs"
+
+    def _close_code(self, client: TestClient, run_id: str, api_key: str) -> int:
+        return ws_close_code(client, self._url(run_id), auth_frame(api_key))
 
     def test_owner_receives_initial_message(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
         run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
-        url = f"/api/v1/ws/runs/{run_id}/logs?api_key={TEST_API_KEY_RAW}"
-        with client.websocket_connect(url) as ws:
+        with client.websocket_connect(self._url(run_id)) as ws:
+            ws.send_json(auth_frame(TEST_API_KEY_RAW))
             msg = ws.receive_json()
         assert run_id in msg["message"]
         assert msg["level"] == "info"
         assert "ts" in msg
 
-    def test_missing_api_key_rejected(
+    def test_no_auth_frame_times_out(self, client: TestClient, seed_data: dict, ws_db) -> None:
+        """Nothing is sent before the auth frame arrives."""
+        run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
+        with (
+            patch("src.api.ws_auth.WS_AUTH_TIMEOUT_S", 0.05),
+            client.websocket_connect(self._url(run_id)) as ws,
+            pytest.raises(WebSocketDisconnect) as exc,
+        ):
+            ws.receive_text()  # first thing received is the close, not a log frame
+        assert exc.value.code == 4403
+
+    def test_key_in_url_refused_even_if_valid(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
         run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
-        assert self._close_code(client, f"/api/v1/ws/runs/{run_id}/logs") == 4403
+        url = f"{self._url(run_id)}?api_key={TEST_API_KEY_RAW}"
+        with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(url):
+            pass
+        assert exc.value.code == 4403
+
+    @pytest.mark.parametrize(
+        "frame",
+        [
+            "not json",
+            "[]",
+            {"type": "hello", "api_key": TEST_API_KEY_RAW},
+            {"type": "auth"},
+            {"type": "auth", "api_key": ""},
+            {"type": "auth", "api_key": 123},
+            {"type": "auth", "api_key": TEST_API_KEY_RAW, "pad": "x" * 2000},
+        ],
+    )
+    def test_malformed_auth_frame_rejected(
+        self, client: TestClient, seed_data: dict, ws_db: sessionmaker, frame: object
+    ) -> None:
+        run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
+        assert ws_close_code(client, self._url(run_id), frame) == 4403
 
     def test_unknown_api_key_rejected(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
         run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
-        url = f"/api/v1/ws/runs/{run_id}/logs?api_key=not-a-real-key"
-        assert self._close_code(client, url) == 4403
+        assert self._close_code(client, run_id, "not-a-real-key") == 4403
 
     def test_revoked_api_key_rejected(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
         key_id = self._add_key(ws_db, "revoked-key", revoked=True)
         run_id = self._add_run(ws_db, seed_data, key_id)
-        url = f"/api/v1/ws/runs/{run_id}/logs?api_key=revoked-key"
-        assert self._close_code(client, url) == 4403
+        assert self._close_code(client, run_id, "revoked-key") == 4403
 
     def test_run_of_another_principal_rejected(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
         other = self._add_key(ws_db, "other-users-key", "team_b")
         run_id = self._add_run(ws_db, seed_data, other, project_owner="team_b")
-        url = f"/api/v1/ws/runs/{run_id}/logs?api_key={TEST_API_KEY_RAW}"
-        assert self._close_code(client, url) == 4404
+        assert self._close_code(client, run_id, TEST_API_KEY_RAW) == 4404
 
     def test_run_of_another_key_same_principal_allowed(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
         rotated = self._add_key(ws_db, "rotated-key-of-test-user")
         run_id = self._add_run(ws_db, seed_data, rotated)
-        url = f"/api/v1/ws/runs/{run_id}/logs?api_key={TEST_API_KEY_RAW}"
-        with client.websocket_connect(url) as ws:
+        with client.websocket_connect(self._url(run_id)) as ws:
+            ws.send_json(auth_frame(TEST_API_KEY_RAW))
             assert run_id in ws.receive_json()["message"]
 
     def test_unknown_run_rejected_like_foreign_run(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
-        url = f"/api/v1/ws/runs/{uuid.uuid4()}/logs?api_key={TEST_API_KEY_RAW}"
-        assert self._close_code(client, url) == 4404
+        assert self._close_code(client, str(uuid.uuid4()), TEST_API_KEY_RAW) == 4404
 
     def test_malformed_run_id_rejected(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
-        url = f"/api/v1/ws/runs/not-a-uuid/logs?api_key={TEST_API_KEY_RAW}"
-        assert self._close_code(client, url) == 4404
+        assert self._close_code(client, "not-a-uuid", TEST_API_KEY_RAW) == 4404
 
     def test_rejected_before_redis_subscribe(
         self, client: TestClient, seed_data: dict, ws_db: sessionmaker
     ) -> None:
         run_id = self._add_run(ws_db, seed_data, seed_data["api_key_id"])
         with patch("redis.asyncio.from_url") as from_url:
-            self._close_code(client, f"/api/v1/ws/runs/{run_id}/logs?api_key=bad")
+            self._close_code(client, run_id, "bad")
         from_url.assert_not_called()

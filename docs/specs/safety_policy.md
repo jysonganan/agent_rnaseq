@@ -131,7 +131,7 @@ Audit records must not be deleted or modified after creation. `UPDATE` on `Pipel
 
 ### 11.1 API Key Storage
 - The API key is stored in `localStorage` under key `rnaseq_api_key`.
-- The key must never appear in: URL query parameters (except the WebSocket `?api_key=` param, which is sent over TLS in prod), HTML source, server-side logs, or error messages.
+- The key must never appear in: URL query parameters (including WebSocket URLs), HTML source, server-side logs, or error messages.
 - On receiving a 401 response from any endpoint, the frontend must clear the stored key and re-prompt the user.
 
 ### 11.2 Content Rendering
@@ -159,8 +159,8 @@ Rationale: hallucinated UUIDs would either fail at FK constraint (DB error, not 
 - No `allow-top-navigation` or `allow-popups-to-escape-sandbox` on any iframe.
 
 ### 11.5 WebSocket Authentication
-- Both WebSockets (conversation stream and run log stream) send the API key as `?api_key=<key>` query parameter; this is the only acceptable exception to URL-param transmission and is restricted to WSS (TLS) in production.
-- Every FastAPI WebSocket handler must validate the key against the `APIKey` table before accepting the connection or subscribing to the Redis channel, identical to REST auth (shared helper `src/api/auth.py::active_api_key`), and must check that the requested conversation or run belongs to that key's principal. Rejections close with `4403` (bad key) or `4404` (not found / not owned).
+- Both WebSockets (conversation stream and run log stream) authenticate with a first-message handshake: the client connects with no credentials in the URL and sends `{"type": "auth", "api_key": "<key>"}` as its first frame within 10 s (`api_contracts.md` "WebSocket authentication"). A URL carrying `api_key` is refused with `4403`. Production uses WSS (TLS).
+- Every FastAPI WebSocket handler must validate the key against the `APIKey` table before sending any frame or subscribing to the Redis channel, identical to REST auth (shared helper `src/api/auth.py::active_api_key`), and must check that the requested conversation or run belongs to that key's principal. Rejections close with `4403` (bad key) or `4404` (not found / not owned).
 
 ### 11.6 No Credential Exposure in Agent Responses
 - Agent response content written to `ChatMessage.content` must not contain: file system paths, AWS credentials, internal IP addresses, or raw tool stderr.

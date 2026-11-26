@@ -13,7 +13,6 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
-from starlette.websockets import WebSocketDisconnect
 
 from src.db.enums import (
     Aligner,
@@ -29,6 +28,7 @@ from src.db.models.auth import APIKey
 from src.db.models.conversation import Conversation
 from src.db.models.project import Project, Sample
 from src.db.models.run import AnalysisRun, Artifact, PipelineStage
+from tests.api.conftest import TEST_API_KEY_RAW, auth_frame, ws_close_code
 
 TEAM_B_RAW = "team-b-raw-key-0123456789"
 SECOND_TEST_USER_RAW = "test-user-second-key-0123456789"
@@ -241,20 +241,13 @@ class TestConversations:
         self, client: TestClient, other: dict, db_engine
     ) -> None:
         factory = sessionmaker(bind=db_engine)
-        url = (
-            f"/api/v1/ws/conversations/{other['conversation_id']}/stream"
-            "?api_key=test-integration-api-key-abc123def456"
-        )
-        with (
-            patch(
-                "src.api.websocket.conversation_stream.get_session_factory",
-                return_value=factory,
-            ),
-            pytest.raises(WebSocketDisconnect) as exc,
-            client.websocket_connect(url),
+        url = f"/api/v1/ws/conversations/{other['conversation_id']}/stream"
+        with patch(
+            "src.api.websocket.conversation_stream.get_session_factory",
+            return_value=factory,
         ):
-            pass
-        assert exc.value.code == 4404
+            code = ws_close_code(client, url, auth_frame(TEST_API_KEY_RAW))
+        assert code == 4404
 
 
 def test_unknown_ids_and_foreign_ids_look_the_same(

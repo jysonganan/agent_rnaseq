@@ -51,11 +51,12 @@ export function useConversationStream(
     const wsBase = toWsBase(
       process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
     )
-    // API key is in the URL per safety_policy 11.5 (WS-only exception, WSS in prod)
-    const url = `${wsBase}/ws/conversations/${conversationId}/stream?api_key=${apiKey}`
+    // The key goes in the first frame, never the URL (safety_policy 11.5)
+    const url = `${wsBase}/ws/conversations/${conversationId}/stream`
 
     const manager = new WsManager({
       url,
+      apiKey,
       onStatusChange: setStatus,
       onMessage: (raw) => {
         const frame = raw as unknown as WsFrame

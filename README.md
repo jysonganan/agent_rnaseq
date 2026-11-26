@@ -456,8 +456,10 @@ curl -s -X POST http://localhost:8000/api/v1/runs \
 curl -s http://localhost:8000/api/v1/runs/<run-id> \
   -H "Authorization: Bearer <api-key>" | jq '.status, .stages[].status'
 
-# Stream live logs (WebSocket)
-websocat ws://localhost:8000/api/v1/ws/runs/<run-id>/logs
+# Stream live logs (WebSocket). The key goes in the first frame, never the URL;
+# a URL carrying ?api_key= is refused with close code 4403.
+(echo '{"type":"auth","api_key":"<api-key>"}'; cat) | \
+  websocat ws://localhost:8000/api/v1/ws/runs/<run-id>/logs
 
 # Get DE results
 curl -s "http://localhost:8000/api/v1/runs/<run-id>/de?contrast=treatment_vs_control&padj_cutoff=0.05" \

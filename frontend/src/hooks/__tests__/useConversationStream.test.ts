@@ -10,8 +10,9 @@ class MockWebSocket {
 
   onopen: (() => void) | null = null
   onmessage: ((e: { data: string }) => void) | null = null
-  onclose: (() => void) | null = null
+  onclose: ((e?: { code: number }) => void) | null = null
   onerror: (() => void) | null = null
+  sent: string[] = []
   readyState = 0  // CONNECTING
 
   constructor(public readonly url: string) {
@@ -29,10 +30,14 @@ class MockWebSocket {
     this.onmessage?.({ data })
   }
 
-  // Test helper: connection closed
-  close() {
+  send(data: string) {
+    this.sent.push(data)
+  }
+
+  // Test helper: connection closed (optionally with a server close code)
+  close(code?: number) {
     this.readyState = 3
-    this.onclose?.()
+    this.onclose?.(code === undefined ? undefined : { code })
   }
 
   // Expose OPEN constant so WsManager can reference WebSocket.OPEN
@@ -64,13 +69,51 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-it("connects with the correct URL including api_key param", () => {
+it("connects without the API key in the URL", () => {
   renderHook(() => useConversationStream("conv-1"))
 
-  expect(MockWebSocket.instances.length).toBe(1)
+  expect(MockWebSocket.instances).toHaveLength(1)
   const url = MockWebSocket.instances[0].url
   expect(url).toContain("/ws/conversations/conv-1/stream")
-  expect(url).toContain("api_key=test-key")
+  expect(url).not.toContain("api_key")
+  expect(url).not.toContain("test-key")
+})
+
+it("sends the API key as the first frame on open", () => {
+  renderHook(() => useConversationStream("conv-1"))
+
+  expect(MockWebSocket.instances[0].sent).toHaveLength(0)
+  act(() => MockWebSocket.instances[0].open())
+
+  expect(MockWebSocket.instances[0].sent).toHaveLength(1)
+  expect(JSON.parse(MockWebSocket.instances[0].sent[0])).toEqual({
+    type: "auth",
+    api_key: "test-key",
+  })
+})
+
+it("re-sends the auth frame after reconnecting", () => {
+  jest.useFakeTimers()
+  renderHook(() => useConversationStream("conv-1"))
+
+  act(() => MockWebSocket.instances[0].open())
+  act(() => MockWebSocket.instances[0].close())
+  act(() => jest.advanceTimersByTime(1000))
+  act(() => MockWebSocket.instances[1].open())
+
+  expect(JSON.parse(MockWebSocket.instances[1].sent[0])).toMatchObject({ type: "auth" })
+})
+
+it.each([4403, 4404])("does not retry after server close code %i", (code) => {
+  jest.useFakeTimers()
+  const { result } = renderHook(() => useConversationStream("conv-1"))
+
+  act(() => MockWebSocket.instances[0].open())
+  act(() => MockWebSocket.instances[0].close(code))
+  act(() => jest.advanceTimersByTime(10000))
+
+  expect(MockWebSocket.instances).toHaveLength(1)
+  expect(result.current.status).toBe("error")
 })
 
 it("status becomes 'connected' after WS opens", () => {

@@ -27,10 +27,12 @@ export function useRunLogStream(runId: string | null): UseRunLogStreamResult {
     const wsBase = toWsBase(
       process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
     )
-    const url = `${wsBase}/ws/runs/${runId}/logs?api_key=${apiKey}`
+    // The key goes in the first frame, never the URL (safety_policy 11.5)
+    const url = `${wsBase}/ws/runs/${runId}/logs`
 
     const manager = new WsManager({
       url,
+      apiKey,
       onStatusChange: setStatus,
       onMessage: (raw) => {
         setLogs((prev) => [...prev, raw as unknown as RunLogFrame])

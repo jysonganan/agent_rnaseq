@@ -580,16 +580,39 @@ Revoke an API key immediately. **204** on success, **404** unknown key, **409** 
 
 ---
 
+### WebSocket authentication
+
+Browsers cannot set an `Authorization` header on a WebSocket, and a key in the URL ends up in
+proxy, load-balancer and browser-history logs. Both WebSockets therefore authenticate with the
+**first frame** after the connection opens:
+
+1. The client opens the socket with no credentials in the URL.
+2. Within **10 seconds** it sends exactly one text frame:
+   ```json
+   { "type": "auth", "api_key": "<key>" }
+   ```
+3. The server validates the key exactly like REST (`active_api_key`: unknown, expired and revoked
+   keys are rejected) and checks ownership of the run or conversation. Until this succeeds,
+   nothing is sent and no Redis channel is subscribed.
+4. On failure the server closes with `4403` (authentication) or `4404` (not found / not owned).
+
+A connection whose URL carries an `api_key` query parameter is refused with `4403` before it is
+accepted, so old clients fail fast instead of leaking the key unnoticed. After authentication,
+client frames are ignored. A reconnecting client repeats the handshake on every new connection.
+
 ### WebSocket: Run Log Stream
 
 #### `WS /ws/runs/{run_id}/logs`
 Streams agent log messages in real time.
 
-**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). Before accepting the connection, the handler validates the key against the `APIKey` table (same check as REST: unknown, expired or revoked keys are rejected) and verifies the run belongs to that key's principal (its project's `owner`). Nothing is sent and no Redis channel is subscribed until both checks pass.
+**Authentication**: first-message handshake (see "WebSocket authentication" below). The handler
+checks the key and that the run belongs to that key's principal (its project's `owner`) before
+anything is sent or any Redis channel is subscribed. After success the first frame is the
+`"Connected to log stream for run …"` info message.
 
 | Close code | Meaning |
 |---|---|
-| `4403` | `api_key` missing, unknown, expired or revoked |
+| `4403` | No auth frame within 10 s, malformed auth frame, key unknown/expired/revoked, or the key was put in the URL |
 | `4404` | Run id malformed, unknown, or owned by another principal (indistinguishable, so run ids are not revealed) |
 
 **Message format**
@@ -732,7 +755,11 @@ The endpoint:
 #### `WS /ws/conversations/{conversation_id}/stream`
 Streams agent response tokens and pipeline events for a conversation.
 
-**Authentication**: send API key as query param `?api_key=<key>` (WebSocket does not support custom headers in browsers). The key is validated before accepting; the conversation must belong to the key's principal. Close `4403` = bad key, `4404` = conversation unknown, deleted or owned by another principal.
+**Authentication**: first-message handshake (see "WebSocket authentication" below). The
+conversation must belong to the key's principal. On success the server sends
+`{ "type": "auth_ok", "payload": {} }` before any other frame; clients may ignore it. Close
+`4403` = no/malformed auth frame, bad key, or key in the URL; `4404` = conversation unknown,
+deleted or owned by another principal.
 
 **Frame types**
 

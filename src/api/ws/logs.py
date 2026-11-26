@@ -6,16 +6,20 @@ import contextlib
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Query, WebSocket
+from fastapi import APIRouter, WebSocket
 
 from src.api.auth import active_api_key
+from src.api.ws_auth import (
+    WS_CLOSE_NOT_FOUND,
+    WS_CLOSE_UNAUTHORIZED,
+    key_in_url,
+    receive_api_key,
+)
 from src.db.session import get_session_factory
 
 ws_router = APIRouter()
 
-# Close codes (sent before accept, so nothing is streamed to an unauthorized client).
-WS_CLOSE_UNAUTHORIZED = 4403  # missing, unknown, expired or revoked API key
-WS_CLOSE_NOT_FOUND = 4404  # malformed run id, unknown run, or a run of another principal
+__all__ = ["WS_CLOSE_NOT_FOUND", "WS_CLOSE_UNAUTHORIZED", "ws_router"]
 
 
 def _authorize(api_key: str, run_id: str) -> int | None:
@@ -43,14 +47,21 @@ def _authorize(api_key: str, run_id: str) -> int | None:
 
 
 @ws_router.websocket("/ws/runs/{run_id}/logs")
-async def ws_logs(websocket: WebSocket, run_id: str, api_key: str = Query(default="")) -> None:
-    # Validate the API key and run ownership before accepting or subscribing to Redis.
-    close_code = _authorize(api_key, run_id)
-    if close_code is not None:
-        await websocket.close(code=close_code)
+async def ws_logs(websocket: WebSocket, run_id: str) -> None:
+    # A key in the URL is refused outright; the key arrives in the first frame instead.
+    if key_in_url(websocket):
+        await websocket.close(code=WS_CLOSE_UNAUTHORIZED)
         return
 
     await websocket.accept()
+    # Validate the API key and run ownership before sending anything or subscribing to Redis.
+    api_key = await receive_api_key(websocket)
+    close_code = WS_CLOSE_UNAUTHORIZED if api_key is None else _authorize(api_key, run_id)
+    if close_code is not None:
+        with contextlib.suppress(Exception):
+            await websocket.close(code=close_code)
+        return
+
     await websocket.send_json(
         {
             "ts": datetime.now(UTC).isoformat(),

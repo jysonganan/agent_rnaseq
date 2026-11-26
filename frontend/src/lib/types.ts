@@ -166,7 +166,7 @@ export interface SendMessageResponse {
 export type WsStatus = "connecting" | "connected" | "error"
 
 // WebSocket payload types (payload-wrapped format from server)
-export type WsFrameType = "token" | "tool_call" | "stage_update" | "done" | "error"
+export type WsFrameType = "auth_ok" | "token" | "tool_call" | "stage_update" | "done" | "error"
 
 export interface TokenPayload {
   message_id: string
@@ -197,7 +197,13 @@ export interface WsErrorPayload {
 
 export interface WsFrame {
   type: WsFrameType
-  payload: TokenPayload | ToolCallPayload | StageUpdatePayload | DonePayload | WsErrorPayload
+  payload:
+    | TokenPayload
+    | ToolCallPayload
+    | StageUpdatePayload
+    | DonePayload
+    | WsErrorPayload
+    | Record<string, never> // auth_ok
 }
 
 // Run log frame (flat format from WS /ws/runs/{id}/logs)

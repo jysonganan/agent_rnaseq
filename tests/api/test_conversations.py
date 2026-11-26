@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.api.conftest import TEST_API_KEY_RAW
+from tests.api.conftest import TEST_API_KEY_RAW, auth_frame, ws_close_code
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -288,35 +288,65 @@ def test_rate_limit_send_message(client: TestClient, auth_headers: dict, seed_da
 # ── WebSocket auth ─────────────────────────────────────────────────────────────
 
 
-def test_ws_rejects_missing_api_key(client: TestClient, seed_data: dict) -> None:
-    """WS closes with 4403 before accept when api_key param is absent."""
-    import uuid
-
-    from starlette.websockets import WebSocketDisconnect
-
-    with (
-        pytest.raises(WebSocketDisconnect),
-        client.websocket_connect(f"/api/v1/ws/conversations/{uuid.uuid4()}/stream"),
-    ):
-        pass
-
-
-def test_ws_rejects_invalid_api_key(client: TestClient, db_engine, seed_data: dict) -> None:
-    """WS closes with 4403 before accept when api_key is not in the database."""
-    import uuid
+@pytest.fixture
+def conv_ws_db(db_engine):
     from unittest.mock import patch as _patch
 
     from sqlalchemy.orm import sessionmaker
+
+    factory = sessionmaker(bind=db_engine)
+    with _patch("src.api.websocket.conversation_stream.get_session_factory", return_value=factory):
+        yield factory
+
+
+def _conv_url(conversation_id: object) -> str:
+    return f"/api/v1/ws/conversations/{conversation_id}/stream"
+
+
+def test_ws_rejects_missing_auth_frame(client: TestClient, seed_data: dict, conv_ws_db) -> None:
+    """No auth frame within the timeout: closed with 4403, nothing sent first."""
+    import uuid
+    from unittest.mock import patch as _patch
+
     from starlette.websockets import WebSocketDisconnect
 
-    test_session_factory = sessionmaker(bind=db_engine)
-
     with (
-        _patch(
-            "src.api.websocket.conversation_stream.get_session_factory",
-            return_value=test_session_factory,
-        ),
-        pytest.raises(WebSocketDisconnect),
-        client.websocket_connect(f"/api/v1/ws/conversations/{uuid.uuid4()}/stream?api_key=bad-key"),
+        _patch("src.api.ws_auth.WS_AUTH_TIMEOUT_S", 0.05),
+        client.websocket_connect(_conv_url(uuid.uuid4())) as ws,
+        pytest.raises(WebSocketDisconnect) as exc,
     ):
+        ws.receive_text()
+    assert exc.value.code == 4403
+
+
+def test_ws_rejects_invalid_api_key(client: TestClient, seed_data: dict, conv_ws_db) -> None:
+    import uuid
+
+    assert ws_close_code(client, _conv_url(uuid.uuid4()), auth_frame("bad-key")) == 4403
+
+
+def test_ws_refuses_key_in_url(client: TestClient, seed_data: dict, conv_ws_db) -> None:
+    import uuid
+
+    from starlette.websockets import WebSocketDisconnect
+
+    url = f"{_conv_url(uuid.uuid4())}?api_key=test-integration-api-key-abc123def456"
+    with pytest.raises(WebSocketDisconnect) as exc, client.websocket_connect(url):
         pass
+    assert exc.value.code == 4403
+
+
+def test_ws_unknown_conversation_is_4404(client: TestClient, seed_data: dict, conv_ws_db) -> None:
+    import uuid
+
+    url = _conv_url(uuid.uuid4())
+    assert ws_close_code(client, url, auth_frame(TEST_API_KEY_RAW)) == 4404
+
+
+def test_ws_owner_gets_auth_ok_first(
+    client: TestClient, seed_data: dict, conv_ws_db, auth_headers
+) -> None:
+    cid = client.post("/api/v1/conversations", json={}, headers=auth_headers).json()["id"]
+    with client.websocket_connect(_conv_url(cid)) as ws:
+        ws.send_json(auth_frame(TEST_API_KEY_RAW))
+        assert ws.receive_json() == {"type": "auth_ok", "payload": {}}

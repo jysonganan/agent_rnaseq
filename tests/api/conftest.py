@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+from starlette.websockets import WebSocketDisconnect
 
 from src.api.app import create_app
 from src.db.base import Base
@@ -134,3 +135,24 @@ def run_payload(seed_data: dict) -> dict:
         "aligner": "star",
         "stages": ["qc"],
     }
+
+
+def ws_close_code(client: TestClient, url: str, first_frame: object) -> int:
+    """Connect, send *first_frame* (JSON, or raw text if a str), return the server's close code.
+
+    For sockets that pass the handshake this would block on Redis-less streams, so use it only
+    where the server is expected to close after the auth frame.
+    """
+    with client.websocket_connect(url) as ws:
+        if isinstance(first_frame, str):
+            ws.send_text(first_frame)
+        else:
+            ws.send_json(first_frame)
+        with pytest.raises(WebSocketDisconnect) as exc:
+            while True:
+                ws.receive_text()
+    return exc.value.code
+
+
+def auth_frame(api_key: str) -> dict[str, str]:
+    return {"type": "auth", "api_key": api_key}

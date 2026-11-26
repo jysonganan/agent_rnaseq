@@ -6,12 +6,19 @@ export type { WsStatus }
 export type JsonFrame = Record<string, unknown>
 
 interface WsManagerOptions {
+  /** Must not contain credentials (safety_policy 11.1); auth goes in the first frame. */
   url: string
+  /** API key sent as the first frame on every (re)connect: {"type":"auth","api_key":...}. */
+  apiKey: string
   onMessage: (frame: JsonFrame) => void
   onStatusChange: (status: WsStatus) => void
 }
 
 const MAX_RETRIES = 3
+
+// Server close codes that a retry cannot fix (bad key, or resource not found / not owned).
+const WS_CLOSE_UNAUTHORIZED = 4403
+const WS_CLOSE_NOT_FOUND = 4404
 
 export class WsManager {
   private ws: WebSocket | null = null
@@ -32,6 +39,7 @@ export class WsManager {
 
     ws.onopen = () => {
       this.retryCount = 0
+      ws.send(JSON.stringify({ type: "auth", api_key: this.options.apiKey }))
       this.options.onStatusChange("connected")
     }
 
@@ -44,8 +52,13 @@ export class WsManager {
       }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event?: CloseEvent) => {
       if (this.destroyed) return
+      const code = event?.code
+      if (code === WS_CLOSE_UNAUTHORIZED || code === WS_CLOSE_NOT_FOUND) {
+        this.options.onStatusChange("error")
+        return
+      }
       if (this.retryCount < MAX_RETRIES) {
         // Exponential back-off: 1 s, 2 s, 4 s
         const delayMs = Math.pow(2, this.retryCount) * 1000
