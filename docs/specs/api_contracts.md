@@ -97,6 +97,7 @@ List all registered reference genomes.
       "has_star_index": true,
       "has_salmon_index": true,
       "has_rsem_index": false,
+      "bed_annotation_path": null,
       "created_at": "2026-01-01T00:00:00Z"
     }
   ]
@@ -116,9 +117,13 @@ Register a new reference genome.
   "fasta_path": "s3://bucket/genomes/GRCh38.fa",
   "gtf_path": "s3://bucket/genomes/GRCh38.gtf",
   "star_index_path": "s3://bucket/indexes/star_GRCh38",
-  "salmon_index_path": "s3://bucket/indexes/salmon_GRCh38"
+  "salmon_index_path": "s3://bucket/indexes/salmon_GRCh38",
+  "bed_annotation_path": "s3://bucket/genomes/GRCh38.bed12"
 }
 ```
+
+`bed_annotation_path` (optional) is the BED12 gene model RSeQC uses in the `alignment_qc` stage.
+If omitted, the pipeline derives one from `gtf_path`.
 
 **Response 201** — returns created genome object.
 
@@ -206,7 +211,7 @@ Create and launch a new analysis run.
   "sample_ids": ["uuid1", "uuid2"],
   "alignment_mode": "genome",
   "aligner": "star",
-  "stages": ["qc", "alignment", "quantification", "differential_expression", "gsea", "report"],
+  "stages": ["qc", "alignment", "alignment_qc", "quantification", "differential_expression", "gsea", "report"],
   "de_contrasts": [
     { "name": "treatment_vs_control", "numerator": "treatment", "denominator": "control" }
   ],
@@ -397,7 +402,10 @@ Returns a presigned S3 URL (prod) or direct file stream (dev).
 ### QC Metrics
 
 #### `GET /runs/{run_id}/qc`
-Get parsed QC metrics for all samples in a run.
+Get parsed QC metrics for all samples in a run: FastQC module flags from `qc`, and RSeQC metrics
+from `alignment_qc` (`rseqc_rd_<region>` tag counts, `rseqc_total_reads`, `rseqc_total_tags`,
+`rseqc_total_assigned_tags`, `rseqc_ie_undetermined`/`_sense`/`_antisense` fractions,
+`rseqc_library_type` and `rseqc_strandedness`).
 
 **Response 200**
 ```json

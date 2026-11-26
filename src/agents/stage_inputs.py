@@ -30,7 +30,7 @@ REPORT_TEMPLATE = str(_REPO_ROOT / "src" / "tools" / "report" / "template.html")
 
 # Stages that run once per sample / once per user contrast; all others once per run.
 PER_SAMPLE_STAGES: frozenset[str] = frozenset(
-    {"qc", "alignment", "quantification", "variant_calling", "scrna_seq"}
+    {"qc", "alignment", "alignment_qc", "quantification", "variant_calling", "scrna_seq"}
 )
 PER_CONTRAST_STAGES: frozenset[str] = frozenset({"splicing"})
 
@@ -67,6 +67,7 @@ class GenomeInfo:
     star_index_path: str | None
     salmon_index_path: str | None
     rsem_index_path: str | None
+    bed_annotation_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,7 @@ def load_pipeline_context(db: Session, run_id: str, output_root: str) -> Pipelin
             star_index_path=g.star_index_path,
             salmon_index_path=g.salmon_index_path,
             rsem_index_path=g.rsem_index_path,
+            bed_annotation_path=g.bed_annotation_path,
         ),
         samples=sorted(
             (
@@ -244,18 +246,32 @@ def _read_length(ctx: PipelineContext) -> int:
 
 
 def _qc(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
-    bam_path = bai_path = None
-    if "alignment" in outs:
-        bam_path, bai_path = _bam_for(outs, s.id)
     return {
         "run_id": ctx.run_id,
         "sample_id": s.id,
         "fastq_paths": [p for p in (s.fastq_r1, s.fastq_r2) if p],
         "output_dir": ctx.heavy_stage_dir("qc", s.id),
+    }
+
+
+def _alignment_qc(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
+    bam_path, bai_path = _bam_for(outs, s.id)
+    out_dir = ctx.heavy_stage_dir("alignment_qc", s.id)
+    return {
+        "run_id": ctx.run_id,
+        "sample_id": s.id,
         "bam_path": bam_path,
         "bam_index_path": bai_path,
-        "bed_annotation_path": ctx.run_config.get("bed_annotation_path"),
+        "bed_annotation_path": ctx.genome.bed_annotation_path,
+        "gtf_path": ctx.genome.gtf_path,
+        # Shared by all samples of the run: derived once from the GTF when needed.
+        "gene_model_path": _join(posixpath.dirname(out_dir), "gene_model", "genes.bed12"),
+        "output_dir": out_dir,
     }
+
+
+def _join(base: str, *parts: str) -> str:
+    return posixpath.join(base, *parts) if base.startswith("s3://") else os.path.join(base, *parts)
 
 
 def _alignment(ctx: PipelineContext, s: SampleInfo, outs: dict) -> dict:
@@ -529,6 +545,7 @@ def _report(ctx: PipelineContext, outs: dict) -> dict:
 _PER_SAMPLE_BUILDERS = {
     "qc": _qc,
     "alignment": _alignment,
+    "alignment_qc": _alignment_qc,
     "quantification": _quantification,
     "variant_calling": _variant,
     "scrna_seq": _scrna,

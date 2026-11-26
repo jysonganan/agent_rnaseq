@@ -22,6 +22,7 @@ from src.schemas.run import DEContrast
 STAGE_DEPENDENCIES: dict[str, list[str]] = {
     "qc": [],
     "alignment": [],
+    "alignment_qc": ["alignment"],
     "quantification": ["alignment"],
     "variant_calling": ["alignment"],
     "splicing": ["alignment"],
@@ -91,8 +92,8 @@ class OrchestratorAgent:
             "Return valid JSON with these fields:\n"
             "  run_name (string), genome_id (string — must be one of the IDs listed),\n"
             "  pipeline_type (bulk_rnaseq or scrna_seq),\n"
-            "  stages (array of stage names from: qc, alignment, quantification,\n"
-            "    variant_calling, splicing, differential_expression, gsea,\n"
+            "  stages (array of stage names from: qc, alignment, alignment_qc,\n"
+            "    quantification, variant_calling, splicing, differential_expression, gsea,\n"
             "    scrna_seq, visualization, report),\n"
             "  alpha (float 0.001–0.1, default 0.05),\n"
             "  lfc_threshold (float 0.0–5.0, default 0.0)\n"
@@ -428,6 +429,11 @@ class OrchestratorAgent:
             '"alpha": 0.05, "lfc_threshold": 0.0, '
             '"de_contrasts": [{"numerator": "<condition>", "denominator": "<condition>"}], '
             '"read_length": null}\n\n'
+            "Valid stages, in pipeline order: qc, alignment, alignment_qc, quantification, "
+            "variant_calling, splicing, differential_expression, gsea, scrna_seq, "
+            "visualization, report. qc is read QC before alignment (FastQC); alignment_qc is "
+            "QC of the aligned BAM (RSeQC read distribution and strandedness) — include it "
+            "whenever alignment runs, unless the user asks to skip QC.\n\n"
             "Rules for de_contrasts and read_length — these are the user's scientific "
             "decisions, never yours:\n"
             "- de_contrasts: include ONLY comparisons the user explicitly stated in this "

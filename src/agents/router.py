@@ -10,6 +10,7 @@ from src.agents.state import RunState
 ALL_PIPELINE_STAGES: list[str] = [
     "qc",
     "alignment",
+    "alignment_qc",
     "quantification",
     "variant_calling",
     "splicing",

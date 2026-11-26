@@ -24,8 +24,9 @@ CONDA_NAMES = {
     "fgsea": "bioconductor-fgsea",
     "reactome.db": "bioconductor-reactome.db",
     "deepTools": "deeptools",
+    "RSeQC": "rseqc",
 }
-NOT_IN_CONDA_ENV = {"RSeQC", "rMATS", "Scanpy", "AWSCLI", "CellRanger"}
+NOT_IN_CONDA_ENV = {"rMATS", "Scanpy", "AWSCLI", "CellRanger"}
 
 
 def _pins() -> dict[str, str]:

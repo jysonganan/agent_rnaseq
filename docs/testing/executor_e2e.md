@@ -30,7 +30,7 @@ are reverse-stranded and carry the fold changes.
 ## Pass criteria (`tests/e2e/harness.py::verify`)
 
 All levels: run `completed`; per stage one completed `PipelineStage` row per sample (heavy stages)
-or one per run; `executor` = the requested executor for `qc`/`alignment`/`quantification`/
+or one per run; `executor` = the requested executor for `qc`/`alignment`/`alignment_qc`/`quantification`/
 `variant_calling` and `local` for worker-side stages; `tool_version` recorded; every `Artifact`
 exists (local path or S3 object). L1 additionally requires the versions to come from the stub
 processes (proves Nextflow, not a local fallback, produced them).
@@ -40,6 +40,7 @@ L2/L3 add the science checks:
 | Check | Threshold |
 |---|---|
 | STAR uniquely mapped | ≥ 70 % for every sample |
+| RSeQC `infer_experiment` strandedness (`alignment_qc`) | `reverse` for every sample (dUTP data) |
 | HTSeq counted / total (reverse-stranded) | ≥ 70 % for every sample |
 | DESeq2 true up / down genes (padj < 0.05, \|log2FC\| > 1, right sign) | ≥ 75 % each |
 | DESeq2 false positives among the 16 non-DE genes | ≤ 2 |
@@ -84,7 +85,7 @@ Option B — tools image + Docker (`NEXTFLOW_LOCAL_PROFILE=local,test`,
 worker host still needs Java + Nextflow, and R + DESeq2 if `differential_expression` is included
 (worker-side stage).
 
-Default L2 stages: `qc, alignment, quantification, variant_calling, differential_expression,
+Default L2 stages: `qc, alignment, alignment_qc, quantification, variant_calling, differential_expression,
 visualization, report` (override with `E2E_STAGES`; `visualization` needs deepTools on the worker).
 
 ## L3 — AWS Batch

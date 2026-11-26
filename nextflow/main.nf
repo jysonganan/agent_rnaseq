@@ -14,6 +14,7 @@ Usage:
 Workflows and their parameters:
   qc               --fastq_r1 [--fastq_r2]
   alignment        --fastq_r1 [--fastq_r2] --genome_dir [--alignment_mode genome|transcriptome|both]
+  alignment_qc     --bam --bai --bed   (BED12 gene model; RSeQC)
   quantification   --quant_mode star_htseq --bam --gtf_path
                    --quant_mode salmon     --fastq_r1 [--fastq_r2] --salmon_index
                    --quant_mode rsem       --bam --rsem_reference <index prefix>
@@ -26,6 +27,7 @@ Common: --threads, --tools_image (container with pinned tool versions)
 
 include { QC_WORKFLOW              } from './workflows/qc'
 include { ALIGNMENT_WORKFLOW       } from './workflows/alignment'
+include { ALIGNMENT_QC_WORKFLOW    } from './workflows/alignment_qc'
 include { QUANTIFICATION_WORKFLOW  } from './workflows/quantification'
 include { VARIANT_CALLING_WORKFLOW } from './workflows/variant_calling'
 
@@ -56,6 +58,12 @@ workflow {
 
         case 'alignment':
             ALIGNMENT_WORKFLOW(readsChannel(), required('genome_dir'))
+            break
+
+        case 'alignment_qc':
+            ALIGNMENT_QC_WORKFLOW(
+                Channel.of(tuple(params.sample_id, required('bam'), required('bai'))), required('bed')
+            )
             break
 
         case 'quantification':
@@ -94,6 +102,6 @@ workflow {
             break
 
         default:
-            error "Unknown --workflow '${params.workflow}'. Choose: qc, alignment, quantification, variant_calling"
+            error "Unknown --workflow '${params.workflow}'. Choose: qc, alignment, alignment_qc, quantification, variant_calling"
     }
 }

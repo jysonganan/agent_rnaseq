@@ -18,6 +18,7 @@ from src.tools.alignment.star import STARAlignOutput
 from src.tools.de.deseq2 import DESeq2Output
 from src.tools.gsea.reactome import ReactomeGSEAOutput
 from src.tools.qc.fastqc import FastQCOutput
+from src.tools.qc.rseqc import RSeQCOutput
 from src.tools.quantification.htseq import HTSeqOutput
 from src.tools.report.compile import ReportOutput
 from src.tools.scrna.scanpy_tool import ScanpyOutput
@@ -31,6 +32,7 @@ FIXTURE_DIR = Path(__file__).parent / "mock_outputs"
 STAGE_FIXTURES: dict[str, tuple[str, type[BaseModel]]] = {
     "qc": ("fastqc_output.json", FastQCOutput),
     "alignment": ("star_align_output.json", STARAlignOutput),
+    "alignment_qc": ("rseqc_output.json", RSeQCOutput),
     "quantification": ("htseq_output.json", HTSeqOutput),
     "variant_calling": ("gatk_variant_filter_output.json", GATKVariantFilterOutput),
     "splicing": ("rmats_output.json", RMATSOutput),

@@ -193,8 +193,9 @@ The following stages can be included in any combination (dependency constraints 
 
 | Stage | Tools | Outputs |
 |---|---|---|
-| `qc` | FastQC, MultiQC, RSeQC | QC reports, per-sample metrics |
+| `qc` | FastQC, MultiQC (before alignment) | Read QC reports, per-sample metrics |
 | `alignment` | STAR (genome + transcriptome modes), samtools | Sorted/indexed BAM files |
+| `alignment_qc` | RSeQC on the sorted BAM (needs `alignment`) | Read distribution over gene features, inferred strandedness |
 | `quantification` | HTSeq, Salmon, RSEM | Count matrices, TPM/FPKM tables |
 | `variant_calling` | GATK HaplotypeCaller | Filtered VCF files |
 | `splicing` | rMATS | Differential splicing event tables |
@@ -383,9 +384,13 @@ curl -s -X POST http://localhost:8000/api/v1/genomes \
     "fasta_path": "/data/genomes/GRCh38.fa",
     "gtf_path": "/data/genomes/GRCh38.gtf",
     "star_index_path": "/data/indexes/star_GRCh38",
-    "salmon_index_path": "/data/indexes/salmon_GRCh38"
+    "salmon_index_path": "/data/indexes/salmon_GRCh38",
+    "bed_annotation_path": "/data/genomes/GRCh38.bed12"
   }' | jq .
 ```
+
+`bed_annotation_path` is the BED12 gene model RSeQC uses in `alignment_qc`. It is optional: if
+it is left out, the pipeline converts `gtf_path` to BED12 once per run.
 
 ### 3. Create a project and register samples
 
@@ -428,7 +433,7 @@ curl -s -X POST http://localhost:8000/api/v1/runs \
     "sample_ids": ["<ctrl-id>", "<treat-id>"],
     "alignment_mode": "genome",
     "aligner": "star",
-    "stages": ["qc", "alignment", "quantification", "differential_expression", "gsea"],
+    "stages": ["qc", "alignment", "alignment_qc", "quantification", "differential_expression", "gsea"],
     "de_contrasts": [
       {"name": "treatment_vs_control", "numerator": "treatment", "denominator": "control"}
     ],
@@ -499,7 +504,7 @@ curl -s -X POST http://localhost:8000/api/v1/runs \
     "name": "treat_vs_ctrl_batch",
     "pipeline_type": "bulk_rnaseq",
     "sample_ids": ["<ctrl-id>", "<treat-id>"],
-    "stages": ["qc", "alignment", "quantification", "differential_expression", "gsea"],
+    "stages": ["qc", "alignment", "alignment_qc", "quantification", "differential_expression", "gsea"],
     "de_contrasts": [
       {"name": "treatment_vs_control", "numerator": "treatment", "denominator": "control"}
     ],
@@ -797,7 +802,7 @@ agent_rnaseq/
 │   │   ├── state.py             # RunState, StageState
 │   │   └── specialists/         # QC, Alignment, DE, GSEA, scRNA, …
 │   ├── tools/                   # Deterministic tool wrappers (typed in/out)
-│   │   ├── qc/                  # FastQC, MultiQC, RSeQC
+│   │   ├── qc/                  # FastQC, MultiQC, RSeQC, GTF→BED12
 │   │   ├── alignment/           # STAR, samtools
 │   │   ├── de/                  # DESeq2 subprocess wrapper
 │   │   ├── gsea/                # fgsea/Reactome subprocess wrapper

@@ -51,6 +51,24 @@ class TestCreateGenome:
         body = r.json()
         assert body["name"] == "mm39"
         assert "id" in body
+        assert body["bed_annotation_path"] is None  # derived from the GTF at run time
+
+    def test_bed_annotation_path_round_trips(
+        self, client: TestClient, seed_data: dict, auth_headers: dict
+    ) -> None:
+        payload = {
+            "name": "mm39-bed",
+            "species": "Mus musculus",
+            "build": "GRCm39",
+            "fasta_path": "/ref/mm39.fa",
+            "gtf_path": "/ref/mm39.gtf",
+            "bed_annotation_path": "/ref/mm39.bed12",
+        }
+        r = client.post("/api/v1/genomes", json=payload, headers=auth_headers)
+        assert r.status_code == 201
+        gid = r.json()["id"]
+        got = client.get(f"/api/v1/genomes/{gid}", headers=auth_headers).json()
+        assert got["bed_annotation_path"] == "/ref/mm39.bed12"
 
 
 class TestGetGenome:

@@ -109,6 +109,7 @@ def parse_rseqc_infer_experiment(text: str) -> dict:  # type: ignore[type-arg]
         ``undetermined``: float fraction
         ``sense``: float fraction (forward strand)
         ``antisense``: float fraction (reverse strand)
+        ``strandedness``: see :func:`classify_strandedness`
     """
     result: dict[str, object] = {
         "library_type": "Unknown",
@@ -128,15 +129,42 @@ def parse_rseqc_infer_experiment(text: str) -> dict:  # type: ignore[type-arg]
             result["undetermined"] = float(m.group(1))
             continue
 
-        # Sense strand: "1++,1--,2+-,2-+" pattern or "sense" label
-        m_sense = re.search(r'(?:1\+\+,1--,2\+-,2-\+|"sense")\D+([\d.]+)', line, re.IGNORECASE)
+        # Sense = read (1) on the gene's strand: paired-end "1++,1--,2+-,2-+", single-end "++,--"
+        m_sense = re.search(
+            r'(?:"1\+\+,1--,2\+-,2-\+"|"\+\+,--"|"sense")\D+([\d.]+)', line, re.IGNORECASE
+        )
         if m_sense:
             result["sense"] = float(m_sense.group(1))
             continue
 
-        # Antisense strand
-        m_anti = re.search(r'(?:1\+-,1-\+,2\+\+,2--|"antisense")\D+([\d.]+)', line, re.IGNORECASE)
+        # Antisense = read (1) on the opposite strand: "1+-,1-+,2++,2--" or single-end "+-,-+"
+        m_anti = re.search(
+            r'(?:"1\+-,1-\+,2\+\+,2--"|"\+-,-\+"|"antisense")\D+([\d.]+)', line, re.IGNORECASE
+        )
         if m_anti:
             result["antisense"] = float(m_anti.group(1))
 
+    result["strandedness"] = classify_strandedness(
+        float(result["sense"]),  # type: ignore[arg-type]
+        float(result["antisense"]),  # type: ignore[arg-type]
+    )
     return result
+
+
+def classify_strandedness(sense: float, antisense: float) -> str:
+    """Deterministic library strandedness label from infer_experiment fractions.
+
+    ``f = sense / (sense + antisense)``: ``forward`` if f >= 0.8, ``reverse`` if f <= 0.2,
+    ``unstranded`` if 0.4 <= f <= 0.6, else ``ambiguous`` (tool_contracts.md ``run_rseqc``).
+    """
+    total = sense + antisense
+    if total <= 0:
+        return "undetermined"
+    f = sense / total
+    if f >= 0.8:
+        return "forward"
+    if f <= 0.2:
+        return "reverse"
+    if 0.4 <= f <= 0.6:
+        return "unstranded"
+    return "ambiguous"

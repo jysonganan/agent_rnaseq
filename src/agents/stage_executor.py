@@ -29,6 +29,7 @@ from src.agents.run_events import NullRunEvents, RunEvents, output_excerpt
 from src.agents.sanitize import sanitize_text
 from src.agents.specialists import (
     AlignmentAgent,
+    AlignmentQCAgent,
     DEAgent,
     GSEAAgent,
     QCAgent,
@@ -55,6 +56,7 @@ logger = logging.getLogger(__name__)
 SPECIALISTS: dict[str, type[BaseSpecialistAgent]] = {
     "qc": QCAgent,
     "alignment": AlignmentAgent,
+    "alignment_qc": AlignmentQCAgent,
     "quantification": QuantificationAgent,
     "variant_calling": VariantAgent,
     "splicing": SplicingAgent,
@@ -71,6 +73,7 @@ _MAX_ERROR_LEN = 1000
 _STAGE_TOOL: dict[str, str] = {
     "qc": "fastqc",
     "alignment": "star",
+    "alignment_qc": "rseqc",
     "variant_calling": "gatk",
     "splicing": "rmats",
     "differential_expression": "deseq2",
@@ -86,6 +89,7 @@ _QUANT_TOOL = {"star_htseq": "htseq", "salmon": "salmon", "rsem": "rsem"}
 _STAGE_TOOL_FN: dict[str, str] = {
     "qc": "run_fastqc",
     "alignment": "run_star_align",
+    "alignment_qc": "run_rseqc",
     "variant_calling": "run_gatk_haplotypecaller",
     "splicing": "run_rmats",
     "differential_expression": "run_deseq2",

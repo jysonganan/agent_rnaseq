@@ -2,7 +2,7 @@
 # Real end-to-end run on AWS Batch (L3): synthetic data → S3 → Nextflow -profile awsbatch →
 # verification against truth.json. Prints a PASS/FAIL table and writes e2e_report.json.
 #
-# Usage: infra/aws-batch/run_e2e.sh [--stages qc,alignment,quantification,variant_calling]
+# Usage: infra/aws-batch/run_e2e.sh [--stages qc,alignment,alignment_qc,quantification,variant_calling]
 #                                   [--with-de]   # also DESeq2 (needs R + DESeq2 on this host)
 # Requires on this host: Java 17 + Nextflow 23.10.1 (the worker is the Nextflow head),
 # aws CLI, Docker (to build the tiny reference with the tools image), and e2e.env from
@@ -13,7 +13,7 @@ ROOT="$(cd "${HERE}/../.." && pwd)"
 source "${HERE}/e2e.env"
 : "${NEXTFLOW_TOOLS_IMAGE:?run build_push_tools_image.sh first}"
 
-STAGES="qc,alignment,quantification,variant_calling"
+STAGES="qc,alignment,alignment_qc,quantification,variant_calling"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --stages) STAGES="$2"; shift 2 ;;

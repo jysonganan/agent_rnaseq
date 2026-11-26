@@ -1,4 +1,5 @@
 from src.agents.specialists.alignment_agent import AlignmentAgent, AlignmentStageInput
+from src.agents.specialists.alignment_qc_agent import AlignmentQCAgent, AlignmentQCStageInput
 from src.agents.specialists.de_agent import DEAgent, DEStageInput
 from src.agents.specialists.gsea_agent import GSEAAgent, GSEAStageInput
 from src.agents.specialists.qc_agent import QCAgent, QCStageInput
@@ -14,6 +15,8 @@ __all__ = [
     "QCStageInput",
     "AlignmentAgent",
     "AlignmentStageInput",
+    "AlignmentQCAgent",
+    "AlignmentQCStageInput",
     "QuantificationAgent",
     "QuantStageInput",
     "VariantAgent",

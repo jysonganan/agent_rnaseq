@@ -137,6 +137,22 @@ class StubNextflow:
         elif wf == "quantification":
             w(f"{sid}_counts.tsv", "GENE_A\t10\nGENE_B\t20\n__no_feature\t3\n")
             w(f"{sid}.htseq.version.txt", "HTSeq stub\n")
+        elif wf == "alignment_qc":  # mirrors nextflow/modules/rseqc.nf stub
+            assert _arg(cmd, "--bed") and Path(_arg(cmd, "--bed")).is_file()
+            w(
+                f"{sid}.rseqc_read_distribution.txt",
+                "Total Reads                   1000\nTotal Tags                    1000\n"
+                "Total Assigned Tags           900\n"
+                "Group               Total_bases         Tag_count           Tags/Kb\n"
+                "CDS_Exons           1000                800                 800.00\n",
+            )
+            w(
+                f"{sid}.rseqc_infer_experiment.txt",
+                "This is PairEnd Data\nFraction of reads failed to determine: 0.0100\n"
+                'Fraction of reads explained by "1++,1--,2+-,2-+": 0.0100\n'
+                'Fraction of reads explained by "1+-,1-+,2++,2--": 0.9800\n',
+            )
+            w(f"{sid}.rseqc.version.txt", "RSeQC stub\n")
         elif wf == "variant_calling":
             vcf = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\nchr1\t100\t.\tA\tG\t50\tPASS\n"
             w(f"{sid}.raw.vcf.gz", gzip.compress(vcf.encode()))

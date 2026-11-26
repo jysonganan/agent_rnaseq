@@ -1,0 +1,29 @@
+{
+  "module_outputs": {
+    "read_distribution": "mock/alignment_qc/sample_1.rseqc_read_distribution.txt",
+    "infer_experiment": "mock/alignment_qc/sample_1.rseqc_infer_experiment.txt"
+  },
+  "read_distribution": {
+    "Total_Reads": 45000000,
+    "Total_Tags": 45000000,
+    "Total_Assigned_Tags": 42750000,
+    "CDS_Exons": 38000000,
+    "5'UTR_Exons": 2500000,
+    "3'UTR_Exons": 2000000,
+    "Introns": 250000,
+    "TSS_up_1kb": 150000,
+    "TSS_up_5kb": 500000,
+    "TSS_up_10kb": 750000,
+    "TES_down_1kb": 100000,
+    "TES_down_5kb": 200000,
+    "TES_down_10kb": 300000
+  },
+  "infer_experiment_result": {
+    "library_type": "PairEnd",
+    "undetermined": 0.0032,
+    "sense": 0.0065,
+    "antisense": 0.9903,
+    "strandedness": "reverse"
+  },
+  "tool_version": "RSeQC 5.0.1"
+}

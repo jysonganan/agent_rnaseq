@@ -40,6 +40,7 @@ class QuantificationMethod(enum.StrEnum):
 class StageName(enum.StrEnum):
     qc = "qc"
     alignment = "alignment"
+    alignment_qc = "alignment_qc"
     quantification = "quantification"
     variant_calling = "variant_calling"
     splicing = "splicing"
@@ -73,6 +74,7 @@ class ArtifactType(enum.StrEnum):
     scrna_h5ad = "scrna_h5ad"
     scrna_umap = "scrna_umap"
     marker_genes = "marker_genes"
+    rseqc_report = "rseqc_report"
 
 
 class Executor(enum.StrEnum):

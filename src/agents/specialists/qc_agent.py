@@ -1,4 +1,7 @@
-"""QCAgent — runs FastQC, RSeQC, and MultiQC for a single sample."""
+"""QCAgent — pre-alignment read QC (FastQC + MultiQC) for a single sample.
+
+RSeQC needs a BAM, so it runs later in the ``alignment_qc`` stage (AlignmentQCAgent).
+"""
 
 from __future__ import annotations
 
@@ -11,7 +14,6 @@ from src.db.models.results import QCMetric
 from src.db.models.run import PipelineStage
 from src.tools.qc.fastqc import FastQCInput, run_fastqc
 from src.tools.qc.multiqc import MultiQCInput, run_multiqc
-from src.tools.qc.rseqc import RSeQCInput, run_rseqc
 
 
 class QCStageInput(TypedDict):
@@ -19,9 +21,6 @@ class QCStageInput(TypedDict):
     sample_id: str
     fastq_paths: list[str]
     output_dir: str
-    bam_path: str | None
-    bam_index_path: str | None
-    bed_annotation_path: str | None
 
 
 def _to_pass_fail(value: str) -> PassFail | None:
@@ -51,15 +50,6 @@ class QCAgent(BaseSpecialistAgent):
                 )
             )
         }
-        if stage_input.get("bam_path"):
-            outs["rseqc"] = run_rseqc(
-                RSeQCInput(
-                    bam_path=stage_input["bam_path"],
-                    bam_index_path=stage_input["bam_index_path"] or "",
-                    bed_annotation_path=stage_input["bed_annotation_path"] or "",
-                    output_prefix=stage_input["output_dir"] + "/rseqc",
-                )
-            )
         outs["multiqc"] = run_multiqc(
             MultiQCInput(
                 input_dirs=[stage_input["output_dir"]],

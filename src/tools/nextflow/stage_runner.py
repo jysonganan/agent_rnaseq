@@ -29,6 +29,9 @@ from src.tools.base import ToolExecutionError, ToolValidationError
 from src.tools.nextflow.config_builder import build_config_overrides
 from src.tools.nextflow.storage import LocalStorage, Storage
 from src.tools.qc.fastqc import FastQCOutput, _read_zip_summary, _sample_stem
+from src.tools.qc.gtf_to_bed import convert_gtf_to_bed12
+from src.tools.qc.parsers import parse_rseqc_infer_experiment, parse_rseqc_read_distribution
+from src.tools.qc.rseqc import RSeQCOutput
 from src.tools.quantification.htseq import HTSeqOutput
 from src.tools.quantification.parsers import parse_htseq_counts, parse_salmon_meta_info
 from src.tools.quantification.rsem import RSEMOutput
@@ -44,7 +47,7 @@ MAIN_NF = str(_REPO_ROOT / "nextflow" / "main.nf")
 TOOL_VERSIONS_FILE = _REPO_ROOT / "docker" / "tool_versions.txt"
 
 NEXTFLOW_STAGES: frozenset[str] = frozenset(
-    {"qc", "alignment", "quantification", "variant_calling"}
+    {"qc", "alignment", "alignment_qc", "quantification", "variant_calling"}
 )
 
 
@@ -191,6 +194,7 @@ class NextflowStageRunner:
         return {
             "qc": self.qc,
             "alignment": self.alignment,
+            "alignment_qc": self.alignment_qc,
             "quantification": self.quantification,
             "variant_calling": self.variant_calling,
         }[stage]
@@ -256,6 +260,45 @@ class NextflowStageRunner:
             tool_version=self._version(out_dir, sid, "samtools", "samtools"),
         )
         return {"star": star, "samtools": samtools}
+
+    def _gene_model(self, inp: dict[str, Any]) -> str:
+        """The genome's BED12, else one derived from the GTF once per run (uploaded for S3)."""
+        if inp.get("bed_annotation_path"):
+            return str(inp["bed_annotation_path"])
+        derived = inp["gene_model_path"]
+        if self.storage.exists(derived):
+            return derived
+        local_gtf = self.storage.localize(inp["gtf_path"])
+        if not derived.startswith("s3://"):
+            convert_gtf_to_bed12(local_gtf, derived)
+            return derived
+        local_bed = os.path.join(self.cfg.launch_dir, "gene_model", "genes.bed12")
+        convert_gtf_to_bed12(local_gtf, local_bed)
+        self.storage.upload(local_bed, derived)
+        return derived
+
+    def alignment_qc(self, inp: dict[str, Any]) -> dict[str, Any]:
+        sid, out_dir = inp["sample_id"], inp["output_dir"]
+        self.run_workflow(
+            "alignment_qc",
+            sid,
+            out_dir,
+            {"bam": inp["bam_path"], "bai": inp["bam_index_path"], "bed": self._gene_model(inp)},
+        )
+        rd_path = self._out(out_dir, f"{sid}.rseqc_read_distribution.txt")
+        ie_path = self._out(out_dir, f"{sid}.rseqc_infer_experiment.txt")
+        with open(self.storage.localize(rd_path)) as fh:
+            read_distribution = parse_rseqc_read_distribution(fh.read())
+        with open(self.storage.localize(ie_path)) as fh:
+            infer_experiment = parse_rseqc_infer_experiment(fh.read())
+        return {
+            "rseqc": RSeQCOutput(
+                module_outputs={"read_distribution": rd_path, "infer_experiment": ie_path},
+                read_distribution=read_distribution,
+                infer_experiment_result=infer_experiment,
+                tool_version=self._version(out_dir, sid, "rseqc", "RSeQC"),
+            )
+        }
 
     def quantification(self, inp: dict[str, Any]) -> dict[str, Any]:
         sid, out_dir, method = inp["sample_id"], inp["output_dir"], inp["quantification_method"]

@@ -65,8 +65,44 @@ modules: list[str] = ["read_distribution", "infer_experiment", "junction_saturat
 ```python
 module_outputs: dict[str, str]   # module_name → output file path
 read_distribution: dict          # region → read_count (if run)
-infer_experiment_result: dict    # strand inference result (if run)
+infer_experiment_result: dict    # strand inference result (if run), see below
 ```
+
+`infer_experiment_result` keys: `library_type` (`PairEnd` | `SingleEnd` | `Unknown`),
+`undetermined`, `sense`, `antisense` (fractions as printed by RSeQC; `sense` is
+`"1++,1--,2+-,2-+"` for paired-end or `"++,--"` for single-end, `antisense` is
+`"1+-,1-+,2++,2--"` or `"+-,-+"`), and `strandedness`, a deterministic label from
+`f = sense / (sense + antisense)`:
+
+| Condition | `strandedness` | Equivalent |
+|---|---|---|
+| `sense + antisense == 0` | `undetermined` | |
+| `f ≥ 0.8` | `forward` | HTSeq `--stranded yes`, Salmon `SF`/`ISF` |
+| `f ≤ 0.2` | `reverse` | HTSeq `--stranded reverse`, Salmon `SR`/`ISR` (dUTP) |
+| `0.4 ≤ f ≤ 0.6` | `unstranded` | HTSeq `--stranded no`, Salmon `U`/`IU` |
+| otherwise | `ambiguous` | |
+
+RSeQC runs in the `alignment_qc` stage (after `alignment`), never in `qc`, which runs before
+any BAM exists. The stage runs `read_distribution` and `infer_experiment`.
+
+---
+
+### `convert_gtf_to_bed12`
+Deterministic GTF → BED12 conversion (no external tools), used by `alignment_qc` when the
+genome has no `bed_annotation_path`.
+
+```python
+convert_gtf_to_bed12(gtf_path: str, bed_path: str) -> int   # returns transcripts written
+```
+
+- Reads plain or gzipped GTF. One BED12 line per `transcript_id` that has `exon` features.
+- Coordinates: GTF 1-based closed → BED 0-based half-open. Exons sorted by start; blocks are
+  the exons. `thickStart`/`thickEnd` span the transcript's `CDS` + `start_codon` +
+  `stop_codon` features; transcripts without them get `thickStart = thickEnd = chromStart`
+  (non-coding).
+- A transcript whose exons span several chromosomes or strands is skipped.
+- Output sorted by chromosome, start, name. Written to a temporary file and renamed, so a
+  partial BED is never read.
 
 ---
 
@@ -598,6 +634,7 @@ The Orchestrator must reject any `RunConfig` whose `stages` list violates these 
 | Stage | Requires |
 |---|---|
 | `alignment` | (warns if `qc` absent, but not blocked) |
+| `alignment_qc` | `alignment` |
 | `quantification` | `alignment` |
 | `differential_expression` | `quantification` |
 | `gsea` | `differential_expression` |
@@ -658,8 +695,9 @@ OrchestratorAgent(llm_client=None, dry_run=False).execute_run(
 
 | Stage | Invocations | Key inputs resolved from |
 |---|---|---|
-| `qc` | per sample | `Sample.fastq_*`; BAM from alignment if it already ran; `run_config.bed_annotation_path` |
+| `qc` | per sample | `Sample.fastq_*` (FastQC + MultiQC; pre-alignment) |
 | `alignment` | per sample | `ReferenceGenome.star_index_path`; `alignment_mode` (forced to `both` for RSEM) |
+| `alignment_qc` | per sample | sorted BAM + BAI from alignment; `ReferenceGenome.bed_annotation_path`, else a BED12 derived from `ReferenceGenome.gtf_path` into the run's `alignment_qc/gene_model/genes.bed12` (once per run) |
 | `quantification` | per sample | method from `AnalysisRun.aligner`; sorted BAM / FASTQ / transcriptome BAM; genome GTF / Salmon / RSEM index |
 | `variant_calling` | per sample | sorted BAM + BAI, genome FASTA, `run_config.dbsnp_path` |
 | `scrna_seq` | per sample | `Sample.metadata.fastq_dirs`, `run_config.cellranger_transcriptome_path` |
@@ -686,7 +724,7 @@ OrchestratorAgent(llm_client=None, dry_run=False).execute_run(
 ### Executors
 
 `run_config.execution.executor` selects where the **heavy per-sample stages** (`qc`,
-`alignment`, `quantification`, `variant_calling`) run. All other stages always run in the worker.
+`alignment`, `alignment_qc`, `quantification`, `variant_calling`) run. All other stages always run in the worker.
 
 | Executor | Heavy stages | Outputs published to | Prerequisites (checked at start) |
 |---|---|---|---|
@@ -705,7 +743,7 @@ Heavy specialists are split into `compute(stage_input) -> {role: ToolOutput}` an
 ```
 nextflow -log <launch>/.nextflow.log run nextflow/main.nf -profile <local|awsbatch>
   -c <launch>/overrides.config -work-dir <local dir | s3://bucket/nextflow-work/<run_id>>
-  --workflow <qc|alignment|quantification|variant_calling> --sample_id <sample uuid>
+  --workflow <qc|alignment|alignment_qc|quantification|variant_calling> --sample_id <sample uuid>
   --output_dir <stage dir> --tools_image <NEXTFLOW_TOOLS_IMAGE> [--<param> <value> ...]
 ```
 
@@ -729,10 +767,14 @@ Published files (per sample `--output_dir`) and the ToolOutput built from them:
 |---|---|---|---|
 | `qc` | `fastq_r1`, `fastq_r2` | `<stem>_fastqc.{html,zip}` | `FastQCOutput` (summary read from the zip) |
 | `alignment` | `fastq_r1`, `fastq_r2`, `genome_dir`, `alignment_mode`, `read_group` (@RG ID/SM; GATK needs it) | `<sid>_Log.final.out`, `<sid>_SJ.out.tab`, `<sid>.sorted.bam(.bai)`, `<sid>_Aligned.toTranscriptome.out.bam` (mode ≠ genome) | `STARAlignOutput` (stats parsed from the log), `SamtoolsOutput` |
+| `alignment_qc` | `bam`, `bai`, `bed` (BED12) | `<sid>.rseqc_{read_distribution,infer_experiment}.txt` | `RSeQCOutput` (parsed from the two files) |
 | `quantification` | `quant_mode` + `bam`,`gtf_path` (htseq) / `fastq_*`,`salmon_index` / `bam`,`rsem_reference` | `<sid>_counts.tsv` / `<sid>/quant.sf`, `<sid>/aux_info/meta_info.json` / `<sid>.{genes,isoforms}.results` | `HTSeqOutput` / `SalmonQuantOutput` / `RSEMOutput` |
 | `variant_calling` | `bam`, `bai`, `reference_fasta` (`.fai`, `.dict` alongside) | `<sid>.{raw,filtered}.vcf.gz(.tbi)` | `GATKHaplotypeCallerOutput`, `GATKVariantFilterOutput` (counts parsed from the VCFs) |
 
-A missing published file raises `ToolValidationError`. Only small files (logs, counts, FastQC
+For `alignment_qc` without a genome BED, the worker derives the BED12 from the GTF (downloading
+an `s3://` GTF to the cache) and, with `aws_batch`, uploads it to
+`s3://{S3_ARTIFACT_BUCKET}/runs/{run_id}/alignment_qc/gene_model/genes.bed12` so Batch jobs can
+read it. A missing published file raises `ToolValidationError`. Only small files (logs, counts, FastQC
 zips, VCFs, Salmon metadata) are read by the worker; with `aws_batch` they are downloaded to
 `{OUTPUT_ROOT}/{run_id}/s3_cache/`. Worker-side consumers of remote files: DESeq2 (counts files)
 and — when requested — `splicing` (rMATS) and `visualization` (bamCoverage), which **download

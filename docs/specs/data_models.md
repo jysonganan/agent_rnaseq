@@ -22,6 +22,7 @@ Registered reference genome configurations.
 | `star_txome_index_path` | TEXT | | STAR transcriptome index |
 | `salmon_index_path` | TEXT | | Salmon index |
 | `rsem_index_path` | TEXT | | RSEM index |
+| `bed_annotation_path` | TEXT | | BED12 gene model for RSeQC (`alignment_qc`). Optional: when empty, the pipeline derives one from `gtf_path` (`convert_gtf_to_bed12`) |
 | `created_at` | TIMESTAMP | NOT NULL | |
 
 ---
@@ -102,7 +103,7 @@ Individual stage execution record within a run.
 | `id` | UUID | PK | |
 | `run_id` | UUID | FK → AnalysisRun | |
 | `sample_id` | UUID | FK → Sample | Null for multi-sample stages |
-| `stage_name` | ENUM | NOT NULL | `qc`, `alignment`, `quantification`, `variant_calling`, `splicing`, `differential_expression`, `gsea`, `visualization`, `report` |
+| `stage_name` | ENUM | NOT NULL | `qc`, `alignment`, `alignment_qc`, `quantification`, `variant_calling`, `splicing`, `differential_expression`, `gsea`, `visualization`, `report` |
 | `status` | ENUM | NOT NULL | `pending`, `running`, `completed`, `failed`, `skipped` |
 | `tool_name` | VARCHAR(64) | NOT NULL | e.g. `star`, `deseq2` |
 | `tool_version` | VARCHAR(32) | | |
@@ -125,7 +126,7 @@ Output files produced by pipeline stages.
 | `id` | UUID | PK | |
 | `stage_id` | UUID | FK → PipelineStage | |
 | `run_id` | UUID | FK → AnalysisRun | Denormalized for fast queries |
-| `artifact_type` | ENUM | NOT NULL | `fastqc_report`, `bam`, `bai`, `counts_matrix`, `vcf`, `de_table`, `gsea_result`, `splicing_table`, `ucsc_track`, `html_report`, `streamlit_data` |
+| `artifact_type` | ENUM | NOT NULL | `fastqc_report`, `bam`, `bai`, `counts_matrix`, `vcf`, `de_table`, `gsea_result`, `splicing_table`, `ucsc_track`, `html_report`, `streamlit_data`, `rseqc_report` |
 | `path` | TEXT | NOT NULL | Local path or `s3://` URI |
 | `file_size_bytes` | BIGINT | | |
 | `checksum_md5` | VARCHAR(32) | | Computed with `file_size_bytes` when the artifact is a local file at write time; null for remote (`s3://`) paths |
@@ -334,13 +335,14 @@ AlignmentMode: genome | transcriptome | both
 QuantificationMethod: star_htseq | salmon | rsem
 # Note: "star_htseq" = STAR alignment + HTSeq counting; salmon/rsem = direct quasi-mapping or RSEM.
 # The Aligner is always STAR for bulk RNA-seq. QuantificationMethod determines the count tool.
-StageName:     qc | alignment | quantification | variant_calling |
+StageName:     qc | alignment | alignment_qc | quantification | variant_calling |
                splicing | differential_expression | gsea |
                scrna_seq | visualization | report
 StageStatus:   pending | running | completed | failed | skipped
 ArtifactType:  fastqc_report | bam | bai | counts_matrix | vcf |
                de_table | gsea_result | splicing_table | ucsc_track |
-               html_report | streamlit_data | scrna_h5ad | scrna_umap | marker_genes
+               html_report | streamlit_data | scrna_h5ad | scrna_umap | marker_genes |
+               rseqc_report
 Executor:      local | nextflow | aws_batch
 PassFail:      pass | warn | fail
 MessageRole:   user | assistant | tool

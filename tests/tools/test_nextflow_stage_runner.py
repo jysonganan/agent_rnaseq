@@ -47,6 +47,18 @@ VCF = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\n" + "".joi
     f"chr1\t{i}\t.\tA\tG\t50\t{'PASS' if i % 3 else 'SNPFilter'}\n" for i in range(1, 7)
 )
 
+RSEQC_RD = (
+    b"Total Reads                   1000\nTotal Tags                    1000\n"
+    b"Total Assigned Tags           900\n"
+    b"Group               Total_bases         Tag_count           Tags/Kb\n"
+    b"CDS_Exons           1000                800                 800.00\n"
+)
+RSEQC_IE = (
+    b"This is SingleEnd Data\nFraction of reads failed to determine: 0.0100\n"
+    b'Fraction of reads explained by "++,--": 0.9700\n'
+    b'Fraction of reads explained by "+-,-+": 0.0200\n'
+)
+
 
 def _fastqc_zip(stem: str) -> bytes:
     buf = io.BytesIO()
@@ -95,6 +107,9 @@ class FakeNextflow:
             self.write(j(f"{sid}.sorted.bam.bai"), b"BAI")
             if _arg(cmd, "--alignment_mode") != "genome":
                 self.write(j(f"{sid}_Aligned.toTranscriptome.out.bam"), b"TX")
+        elif wf == "alignment_qc":
+            self.write(j(f"{sid}.rseqc_read_distribution.txt"), RSEQC_RD)
+            self.write(j(f"{sid}.rseqc_infer_experiment.txt"), RSEQC_IE)
         elif wf == "quantification":
             self.write(j(f"{sid}_counts.tsv"), b"G1\t10\nG2\t20\n__no_feature\t5\n")
         elif wf == "variant_calling":

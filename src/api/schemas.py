@@ -36,6 +36,7 @@ class GenomeOut(BaseModel):
     star_index_path: str | None
     salmon_index_path: str | None
     rsem_index_path: str | None
+    bed_annotation_path: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -52,6 +53,7 @@ class CreateGenomeIn(BaseModel):
     star_txome_index_path: str | None = None
     salmon_index_path: str | None = None
     rsem_index_path: str | None = None
+    bed_annotation_path: str | None = None
 
 
 class GenomeListOut(BaseModel):

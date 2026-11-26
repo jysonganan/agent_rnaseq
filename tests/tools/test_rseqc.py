@@ -10,7 +10,11 @@ import pytest
 from pydantic import ValidationError
 
 from src.tools.base import ToolExecutionError
-from src.tools.qc.parsers import parse_rseqc_infer_experiment, parse_rseqc_read_distribution
+from src.tools.qc.parsers import (
+    classify_strandedness,
+    parse_rseqc_infer_experiment,
+    parse_rseqc_read_distribution,
+)
 from src.tools.qc.rseqc import RSeQCInput, RSeQCOutput, run_rseqc
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -94,6 +98,40 @@ class TestParseRSeQCInferExperiment:
         result = parse_rseqc_infer_experiment("")
         assert result["library_type"] == "Unknown"
         assert result["undetermined"] == 0.0
+        assert result["strandedness"] == "undetermined"
+
+    def test_paired_end_fixture_is_reverse_stranded(self) -> None:
+        assert parse_rseqc_infer_experiment(self._fixture_text())["strandedness"] == "reverse"
+
+    def test_single_end_fractions_parsed(self) -> None:
+        """Single-end output uses "++,--" / "+-,-+" (previously not parsed at all)."""
+        text = (
+            "This is SingleEnd Data\n"
+            "Fraction of reads failed to determine: 0.0200\n"
+            'Fraction of reads explained by "++,--": 0.9600\n'
+            'Fraction of reads explained by "+-,-+": 0.0200\n'
+        )
+        result = parse_rseqc_infer_experiment(text)
+        assert result["sense"] == pytest.approx(0.96)
+        assert result["antisense"] == pytest.approx(0.02)
+        assert result["strandedness"] == "forward"
+
+
+@pytest.mark.parametrize(
+    ("sense", "antisense", "label"),
+    [
+        (0.0, 0.0, "undetermined"),
+        (0.95, 0.03, "forward"),
+        (0.8, 0.2, "forward"),
+        (0.02, 0.97, "reverse"),
+        (0.48, 0.50, "unstranded"),
+        (0.4, 0.6, "unstranded"),
+        (0.7, 0.3, "ambiguous"),
+        (0.25, 0.75, "ambiguous"),
+    ],
+)
+def test_classify_strandedness(sense: float, antisense: float, label: str) -> None:
+    assert classify_strandedness(sense, antisense) == label
 
 
 # ── RSeQCInput validation ──────────────────────────────────────────────────────

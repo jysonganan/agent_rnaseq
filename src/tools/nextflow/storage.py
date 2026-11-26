@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import os
 import posixpath
+import shutil
 from typing import Protocol
 
 
@@ -18,6 +19,7 @@ class Storage(Protocol):
     def join(self, *parts: str) -> str: ...
     def exists(self, path: str) -> bool: ...
     def localize(self, path: str) -> str: ...
+    def upload(self, local_path: str, path: str) -> None: ...
 
 
 class LocalStorage:
@@ -29,6 +31,11 @@ class LocalStorage:
 
     def localize(self, path: str) -> str:
         return path
+
+    def upload(self, local_path: str, path: str) -> None:
+        if os.path.abspath(local_path) != os.path.abspath(path):
+            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+            shutil.copyfile(local_path, path)
 
 
 class S3Storage:
@@ -58,6 +65,12 @@ class S3Storage:
         if not os.path.exists(local):
             self._s3.download(path, local)  # type: ignore[attr-defined]
         return local
+
+    def upload(self, local_path: str, path: str) -> None:
+        if not path.startswith("s3://"):
+            LocalStorage().upload(local_path, path)
+            return
+        self._s3.upload(local_path, path)  # type: ignore[attr-defined]
 
 
 def storage_for(path: str, cache_dir: str) -> Storage:

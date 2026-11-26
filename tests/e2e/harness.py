@@ -17,11 +17,12 @@ from typing import Any
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-HEAVY_STAGES = ("qc", "alignment", "quantification", "variant_calling")
-STUB_STAGES = ["qc", "alignment", "quantification", "variant_calling"]
+HEAVY_STAGES = ("qc", "alignment", "alignment_qc", "quantification", "variant_calling")
+STUB_STAGES = ["qc", "alignment", "alignment_qc", "quantification", "variant_calling"]
 REAL_STAGES = [
     "qc",
     "alignment",
+    "alignment_qc",
     "quantification",
     "variant_calling",
     "differential_expression",
@@ -256,6 +257,19 @@ def verify(db: Session, run_id: str, cfg: E2EConfig, truth: dict[str, Any]) -> l
         ]
         checks.append(
             Check("alignment: uniquely mapped >= 70%", bool(rates) and min(rates) >= 70, str(rates))
+        )
+
+    if "alignment_qc" in cfg.stages:
+        labels = [
+            ((s.get("output") or {}).get("infer_experiment_result") or {}).get("strandedness")
+            for s in (outs.get("alignment_qc") or {}).get("samples", {}).values()
+        ]
+        checks.append(
+            Check(
+                "alignment_qc: RSeQC infers reverse strandedness",
+                bool(labels) and set(labels) == {"reverse"},
+                str(labels),
+            )
         )
 
     if "quantification" in cfg.stages:

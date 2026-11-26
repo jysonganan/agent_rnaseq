@@ -59,8 +59,9 @@ Sub-agents are deterministic: they call tools, validate outputs, and write
 
 | Agent | Responsibilities | Key Tools |
 |---|---|---|
-| QC Agent | FastQC, MultiQC, RSeQC | `run_fastqc`, `run_multiqc`, `run_rseqc` |
+| QC Agent | Read-level QC before alignment: FastQC, MultiQC | `run_fastqc`, `run_multiqc` |
 | Alignment Agent | STAR genome/transcriptome align, samtools sort/index | `run_star`, `run_samtools` |
+| Alignment QC Agent | Post-alignment QC on the sorted BAM: RSeQC read distribution and strandedness (`alignment_qc` stage) | `run_rseqc`, `convert_gtf_to_bed12` |
 | Quantification Agent | HTSeq counts, Salmon quant, RSEM | `run_htseq`, `run_salmon`, `run_rsem` |
 | Variant Agent | GATK HaplotypeCaller, VCF filtering | `run_gatk`, `run_vcf_filter` |
 | Splicing Agent | rMATS / LeafCutter splicing analysis | `run_rmats` |
@@ -134,6 +135,7 @@ Stage Router (LangGraph conditional edges)
     │
     ├──[qc]──────→ QC Agent node
     ├──[align]───→ Alignment Agent node
+    ├──[align_qc]→ Alignment QC Agent node (RSeQC)
     ├──[quant]───→ Quantification Agent node
     ├──[variant]─→ Variant Agent node
     ├──[splicing]→ Splicing Agent node

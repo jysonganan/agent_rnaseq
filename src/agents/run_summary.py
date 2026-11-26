@@ -55,6 +55,17 @@ def results_markdown(state: dict[str, Any], sample_names: dict[str, str] | None 
                 f"- Alignment: {len(per)} sample(s)"
                 + (f"; uniquely mapped: {', '.join(rates)}" if rates else "")
             )
+        elif stage == "alignment_qc":
+            per = _items(entry, "samples")
+            strands = [
+                f"{names.get(sid, sid[:8])} {o['infer_experiment_result']['strandedness']}"
+                for sid, o in per.items()
+                if "strandedness" in (o.get("infer_experiment_result") or {})
+            ]
+            lines.append(
+                f"- Alignment QC (RSeQC): {len(per)} sample(s)"
+                + (f"; strandedness: {', '.join(strands)}" if strands else "")
+            )
         elif stage == "quantification":
             lines.append(f"- Quantification: {len(_items(entry, 'samples'))} sample(s)")
         elif stage == "variant_calling":
